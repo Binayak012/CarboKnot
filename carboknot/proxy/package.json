@@ -1,0 +1,11 @@
+{
+  "name": "carboknot-proxy",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Stateless Daedalus-hosted proxy for Carboknot. No DB, no logs.",
+  "scripts": {
+    "dev": "node --watch index.js",
+    "start": "node index.js"
+  }
+}

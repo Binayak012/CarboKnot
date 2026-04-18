@@ -1,0 +1,407 @@
+/* Carboknot badge + interpretability panel styles.
+   Scoped via .carboknot-* / #carboknot-panel so host-site CSS doesn't leak in. */
+
+:root {
+  --ck-accent:      #1A6B4A;
+  --ck-accent-soft: #f0f7f3;
+  --ck-low:         #1A6B4A;
+  --ck-low-soft:    #f0f7f3;
+  --ck-mid:         #B8860B;
+  --ck-mid-soft:    #faf3e0;
+  --ck-high:        #A02020;
+  --ck-high-soft:   #fdecec;
+  --ck-ink:         #111827;
+  --ck-muted:       #6b7280;
+  --ck-line:        #e5e7eb;
+  --ck-font:        -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Arial, sans-serif;
+}
+
+/* ---------------- Badge ---------------- */
+
+.carboknot-badge {
+  all: initial;
+  display: block;
+  box-sizing: border-box;
+  font-family: var(--ck-font);
+  color: var(--ck-ink);
+  background: var(--ck-low-soft);
+  border-left: 4px solid var(--ck-low);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin: 12px 0;
+  max-width: 320px;
+  cursor: pointer;
+  line-height: 1.35;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  transition: filter 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+}
+
+.carboknot-badge:hover,
+.carboknot-badge:focus {
+  filter: brightness(0.98);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.10);
+  outline: none;
+}
+
+.carboknot-badge[data-tier="low"]  { border-left-color: var(--ck-low);  background: var(--ck-low-soft);  }
+.carboknot-badge[data-tier="mid"]  { border-left-color: var(--ck-mid);  background: var(--ck-mid-soft);  }
+.carboknot-badge[data-tier="high"] { border-left-color: var(--ck-high); background: var(--ck-high-soft); }
+
+.carboknot-badge .carboknot-kg {
+  display: block;
+  font-family: var(--ck-font);
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--ck-ink);
+}
+.carboknot-badge .carboknot-miles {
+  display: block;
+  font-family: var(--ck-font);
+  font-size: 13px;
+  color: #4b5563;
+  margin-top: 2px;
+}
+.carboknot-badge .carboknot-ci {
+  display: block;
+  font-family: var(--ck-font);
+  font-size: 11px;
+  color: var(--ck-muted);
+  margin-top: 4px;
+  letter-spacing: 0.01em;
+}
+
+/* ---------------- Panel ---------------- */
+
+#carboknot-panel {
+  all: initial;
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 380px;
+  max-width: 92vw;
+  background: #ffffff;
+  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.12);
+  z-index: 2147483647;
+  font-family: var(--ck-font);
+  color: var(--ck-ink);
+  overflow-y: auto;
+  overflow-x: hidden;
+  border-left: 3px solid var(--ck-accent);
+  animation: carboknot-slide-in 180ms ease-out;
+}
+
+@keyframes carboknot-slide-in {
+  from { transform: translateX(16px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+#carboknot-panel .carboknot-panel-close {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  background: transparent;
+  color: var(--ck-muted);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 6px;
+  font-family: var(--ck-font);
+}
+#carboknot-panel .carboknot-panel-close:hover { background: #f3f4f6; color: var(--ck-ink); }
+
+#carboknot-panel .carboknot-panel-header {
+  padding: 22px 56px 16px 22px;
+  border-bottom: 1px solid var(--ck-line);
+  background: var(--ck-accent-soft);
+}
+#carboknot-panel .carboknot-panel-title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ck-accent);
+  font-weight: 600;
+}
+#carboknot-panel .carboknot-panel-total {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--ck-ink);
+  margin-top: 4px;
+}
+#carboknot-panel .carboknot-panel-range {
+  font-size: 13px;
+  color: var(--ck-muted);
+  margin-top: 4px;
+}
+#carboknot-panel .carboknot-panel-warn {
+  margin-top: 10px;
+  padding: 6px 8px;
+  background: var(--ck-mid-soft);
+  color: var(--ck-mid);
+  font-size: 12px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+/* Stage bars */
+#carboknot-panel .carboknot-panel-bars {
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--ck-line);
+}
+#carboknot-panel .carboknot-bar-row {
+  display: grid;
+  grid-template-columns: 110px 1fr 64px;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+}
+#carboknot-panel .carboknot-bar-label {
+  font-size: 12px;
+  color: var(--ck-muted);
+  text-transform: capitalize;
+}
+#carboknot-panel .carboknot-bar-track {
+  height: 8px;
+  background: var(--ck-line);
+  border-radius: 4px;
+  overflow: hidden;
+}
+#carboknot-panel .carboknot-bar-fill {
+  height: 100%;
+  background: var(--ck-accent);
+  border-radius: 4px;
+  transition: width 200ms ease;
+}
+#carboknot-panel .carboknot-bar-value {
+  font-size: 12px;
+  color: var(--ck-ink);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Accordion */
+#carboknot-panel .carboknot-panel-trace {
+  padding: 14px 22px 24px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+#carboknot-panel .carboknot-panel-trace > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--ck-accent);
+  padding: 6px 0 12px;
+  font-size: 13px;
+  user-select: none;
+  list-style: none;
+}
+#carboknot-panel .carboknot-panel-trace > summary::marker,
+#carboknot-panel .carboknot-panel-trace > summary::-webkit-details-marker {
+  display: none;
+}
+#carboknot-panel .carboknot-panel-trace > summary::before {
+  content: "▸";
+  display: inline-block;
+  margin-right: 6px;
+  transition: transform 120ms ease;
+}
+#carboknot-panel .carboknot-panel-trace[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+#carboknot-panel .carboknot-trace-section {
+  margin: 10px 0;
+}
+#carboknot-panel .carboknot-trace-section strong {
+  display: block;
+  color: var(--ck-ink);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 4px;
+}
+#carboknot-panel .carboknot-trace-section ol,
+#carboknot-panel .carboknot-trace-section ul {
+  margin: 4px 0 0 20px;
+  padding: 0;
+}
+#carboknot-panel .carboknot-trace-section li {
+  margin: 2px 0;
+  color: #374151;
+}
+#carboknot-panel .carboknot-trace-section code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  background: var(--ck-accent-soft);
+  padding: 1px 6px;
+  border-radius: 3px;
+  color: var(--ck-ink);
+}
+#carboknot-panel .carboknot-trace-version {
+  margin-top: 14px;
+  font-size: 11px;
+  color: var(--ck-muted);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+/* ---------------- Alternatives section ---------------- */
+
+#carboknot-panel .carboknot-alt-section {
+  padding: 8px 22px 28px;
+  border-top: 1px solid var(--ck-line);
+}
+
+#carboknot-panel .carboknot-alt-header {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  color: var(--ck-accent);
+  margin: 10px 0 12px;
+}
+
+#carboknot-panel .carboknot-alt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+#carboknot-panel .carboknot-alt-card {
+  all: initial;
+  display: block;
+  box-sizing: border-box;
+  font-family: var(--ck-font);
+  color: var(--ck-ink);
+  background: #ffffff;
+  border: 1px solid var(--ck-line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+}
+#carboknot-panel .carboknot-alt-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+  border-color: #d6e3dd;
+}
+
+#carboknot-panel .carboknot-alt-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+#carboknot-panel .carboknot-alt-name {
+  font-family: var(--ck-font);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--ck-ink);
+  line-height: 1.3;
+  flex: 1 1 auto;
+}
+#carboknot-panel .carboknot-alt-merchant {
+  display: inline-block;
+  font-family: var(--ck-font);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ck-accent);
+  background: var(--ck-accent-soft);
+  border: 1px solid #cfe3d9;
+  padding: 3px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+#carboknot-panel .carboknot-alt-price,
+#carboknot-panel .carboknot-alt-carbon {
+  font-family: var(--ck-font);
+  font-size: 12px;
+  color: var(--ck-ink);
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+#carboknot-panel .carboknot-alt-delta {
+  font-family: var(--ck-font);
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+#carboknot-panel .carboknot-alt-delta-good { color: var(--ck-low); }
+#carboknot-panel .carboknot-alt-delta-bad  { color: var(--ck-high); }
+#carboknot-panel .carboknot-alt-delta-flat { color: var(--ck-muted); }
+
+#carboknot-panel .carboknot-alt-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+#carboknot-panel .carboknot-alt-open-btn {
+  display: inline-block;
+  font-family: var(--ck-font);
+  font-size: 12px;
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--ck-accent);
+  padding: 6px 12px;
+  border-radius: 6px;
+  text-decoration: none;
+  border: 1px solid var(--ck-accent);
+  cursor: pointer;
+  transition: filter 120ms ease;
+}
+#carboknot-panel .carboknot-alt-open-btn:hover { filter: brightness(1.08); }
+#carboknot-panel .carboknot-alt-open-btn:visited { color: #ffffff; }
+
+#carboknot-panel .carboknot-alt-why-btn {
+  all: unset;
+  display: inline-block;
+  font-family: var(--ck-font);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ck-accent);
+  background: transparent;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid #cfe3d9;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+#carboknot-panel .carboknot-alt-why-btn:hover { background: var(--ck-accent-soft); }
+
+#carboknot-panel .carboknot-alt-rationale {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--ck-accent-soft);
+  border-left: 3px solid var(--ck-accent);
+  border-radius: 0 6px 6px 0;
+  font-family: var(--ck-font);
+  font-size: 12.5px;
+  color: #374151;
+  line-height: 1.5;
+}
+#carboknot-panel .carboknot-alt-rationale[hidden] { display: none; }
+#carboknot-panel .carboknot-alt-rationale-text {
+  margin: 0 0 6px;
+  font-family: var(--ck-font);
+}
+#carboknot-panel .carboknot-alt-source-tag {
+  display: inline-block;
+  font-family: var(--ck-font);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ck-muted);
+  background: #ffffff;
+  border: 1px solid var(--ck-line);
+  padding: 2px 6px;
+  border-radius: 999px;
+}

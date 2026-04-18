@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Vendored tooling (pnpm binary, ~60 MB)
+.tools/
+
+# Build output
+dist/
+.vite/
+.turbo/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.log
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Coverage
+coverage/

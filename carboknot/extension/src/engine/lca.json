@@ -1,0 +1,82 @@
+{
+  "audio_electronics": {
+    "kg_per_usd": 0.12,
+    "breakdown": { "manufacturing": 0.70, "shipping": 0.15, "packaging": 0.10, "end_of_life": 0.05 },
+    "confidence_multiplier": 0.20,
+    "citation": "Ecoinvent v3.9 — consumer electronics aggregate",
+    "uncertainty_source": "category-level aggregate; specific SKU not resolved",
+    "assumptions": ["Air freight from China to US", "Standard retail packaging", "5-year useful life"]
+  },
+  "laptops": {
+    "kg_per_usd": 0.25,
+    "breakdown": { "manufacturing": 0.80, "shipping": 0.08, "packaging": 0.04, "end_of_life": 0.08 },
+    "confidence_multiplier": 0.18,
+    "citation": "Apple Product Environmental Reports 2022 (averaged across MacBook line)",
+    "uncertainty_source": "price-based proxy; hardware configuration unknown",
+    "assumptions": ["4-year useful life", "Mixed-grid electricity during manufacturing", "Sea freight"]
+  },
+  "smartphones": {
+    "kg_per_usd": 0.18,
+    "breakdown": { "manufacturing": 0.82, "shipping": 0.08, "packaging": 0.04, "end_of_life": 0.06 },
+    "confidence_multiplier": 0.15,
+    "citation": "Apple / Samsung Product Environmental Reports 2022 averaged",
+    "uncertainty_source": "price proxy; flagship vs mid-range not distinguishable from title alone",
+    "assumptions": ["3-year useful life", "Air freight", "Retail packaging"]
+  },
+  "apparel_tops": {
+    "kg_per_usd": 0.25,
+    "breakdown": { "manufacturing": 0.60, "shipping": 0.20, "packaging": 0.15, "end_of_life": 0.05 },
+    "confidence_multiplier": 0.25,
+    "citation": "DEFRA UK 2023 — apparel category factors",
+    "uncertainty_source": "material blend unknown (cotton vs synthetic)",
+    "assumptions": ["Mixed cotton/synthetic blend", "Sea freight", "60 washes over useful life"]
+  },
+  "apparel_bottoms": {
+    "kg_per_usd": 0.28,
+    "breakdown": { "manufacturing": 0.62, "shipping": 0.18, "packaging": 0.15, "end_of_life": 0.05 },
+    "confidence_multiplier": 0.25,
+    "citation": "DEFRA UK 2023 — apparel category factors (denim-weighted)",
+    "uncertainty_source": "material blend unknown; denim assumption may over-state",
+    "assumptions": ["Cotton-heavy denim assumption", "Sea freight", "60 washes over useful life"]
+  },
+  "footwear": {
+    "kg_per_usd": 0.22,
+    "breakdown": { "manufacturing": 0.68, "shipping": 0.17, "packaging": 0.10, "end_of_life": 0.05 },
+    "confidence_multiplier": 0.28,
+    "citation": "MIT 2013 — sneaker LCA (averaged)",
+    "uncertainty_source": "synthetic vs leather upper unknown",
+    "assumptions": ["Mixed synthetic upper", "Sea freight", "2-year useful life"]
+  },
+  "books": {
+    "kg_per_usd": 0.35,
+    "breakdown": { "manufacturing": 0.55, "shipping": 0.30, "packaging": 0.10, "end_of_life": 0.05 },
+    "confidence_multiplier": 0.15,
+    "citation": "Green Press Initiative 2010 — printed book LCA",
+    "uncertainty_source": "paper/print process is well-characterised; interval is narrow",
+    "assumptions": ["Offset paper", "Domestic print", "Ground shipping"]
+  },
+  "home_goods": {
+    "kg_per_usd": 0.15,
+    "breakdown": { "manufacturing": 0.65, "shipping": 0.18, "packaging": 0.12, "end_of_life": 0.05 },
+    "confidence_multiplier": 0.30,
+    "citation": "US EEIO 2020 — furnishings and housewares",
+    "uncertainty_source": "broad category; material composition varies widely",
+    "assumptions": ["Mixed materials", "Sea freight"]
+  },
+  "kitchenware": {
+    "kg_per_usd": 0.20,
+    "breakdown": { "manufacturing": 0.70, "shipping": 0.15, "packaging": 0.10, "end_of_life": 0.05 },
+    "confidence_multiplier": 0.25,
+    "citation": "US EEIO 2020 — housewares",
+    "uncertainty_source": "metal vs ceramic vs plastic not resolved from title",
+    "assumptions": ["Mixed materials", "Sea freight"]
+  },
+  "general": {
+    "kg_per_usd": 0.20,
+    "breakdown": { "manufacturing": 0.65, "shipping": 0.18, "packaging": 0.12, "end_of_life": 0.05 },
+    "confidence_multiplier": 0.40,
+    "citation": "US EEIO 2020 — weighted all-sectors average",
+    "uncertainty_source": "category could not be detected; widest interval applied by design",
+    "assumptions": ["Category fallback", "Interval deliberately wide"]
+  }
+}
