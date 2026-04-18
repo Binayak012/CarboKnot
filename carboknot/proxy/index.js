@@ -17,11 +17,22 @@
 //                              takes { original, alternative } where each is
 //                              { title, kg_total, category }. Calls Dedalus LLM
 //                              once with a 4s timeout. Falls back silently.
+//   POST /api/k2/reason      → { explanation, dominant_stage, confidence_note,
+//                                 source: 'k2_think_v2' | 'fallback' }
+//                              takes the deterministic engine trace
+//                              { title, price, category, kg_total, stages,
+//                                confidence, confidence_reason } and asks
+//                              K2 Think V2 to narrate WHY the Climatiq-grounded
+//                              number is what it is. K2 never produces the
+//                              number — the trace is the ground truth.
 //
 // Environment:
 //   DEDALUS_API_KEY              required for /api/reason to work
 //   DEDALUS_API_ENDPOINT         default https://api.dedaluslabs.ai/v1/chat/completions
 //   DEDALUS_MODEL                default openai/gpt-5
+//   K2_API_KEY                   required for /api/k2/reason to call K2 Think V2
+//   K2_API_ENDPOINT              default https://api.k2think.ai/v1/chat/completions
+//   K2_MODEL                     default LLM360/K2-Think
 //   SWARM_WATCHER_ORIGIN         required for /swarm/* (e.g. https://watcher.dedalus.cloud)
 //   ALLOWED_ORIGINS              CSV, e.g. chrome-extension://abc,http://localhost:5173
 //   REASON_RATE_LIMIT_PER_MIN    default 10
@@ -41,6 +52,10 @@ const DEDALUS_API_KEY = process.env.DEDALUS_API_KEY || '';
 const DEDALUS_API_ENDPOINT =
   process.env.DEDALUS_API_ENDPOINT || 'https://api.dedaluslabs.ai/v1/chat/completions';
 const DEDALUS_MODEL = process.env.DEDALUS_MODEL || 'openai/gpt-5';
+const K2_API_KEY = process.env.K2_API_KEY || '';
+const K2_API_ENDPOINT =
+  process.env.K2_API_ENDPOINT || 'https://api.k2think.ai/v1/chat/completions';
+const K2_MODEL = process.env.K2_MODEL || 'LLM360/K2-Think';
 const SWARM_WATCHER_ORIGIN = (process.env.SWARM_WATCHER_ORIGIN || '').replace(/\/+$/, '');
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
   .split(',')
@@ -50,6 +65,9 @@ const REASON_RATE_LIMIT_PER_MIN = Number(process.env.REASON_RATE_LIMIT_PER_MIN) 
 
 const SWARM_TIMEOUT_MS = 4000;
 const REASON_TIMEOUT_MS = 4000;
+// K2 is a reasoning model and can take a few seconds longer than GPT-5.
+// Give it headroom but still bail before the extension UI feels stuck.
+const K2_TIMEOUT_MS = 8000;
 const STARTED_AT = Date.now();
 
 // --- rate limiter (token bucket per IP, in memory) ---
@@ -86,6 +104,7 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/swarm/cache-status') return handleSwarmCacheStatus(res);
     if (req.method === 'GET' && url.pathname === '/swarm/cache') return handleSwarmCache(res);
     if (req.method === 'POST' && url.pathname === '/api/reason') return handleReason(req, res);
+    if (req.method === 'POST' && url.pathname === '/api/k2/reason') return handleK2Reason(req, res);
 
     return json(res, 404, { error: 'not_found', path: url.pathname });
   } catch (err) {
@@ -97,6 +116,7 @@ const server = createServer(async (req, res) => {
 server.listen(PORT, () => {
   console.log(`[Carboknot proxy] listening on :${PORT}`);
   console.log(`[Carboknot proxy] dedalus key: ${DEDALUS_API_KEY ? 'set' : 'MISSING'}`);
+  console.log(`[Carboknot proxy] k2 key: ${K2_API_KEY ? 'set' : 'MISSING'}`);
   console.log(`[Carboknot proxy] swarm watcher: ${SWARM_WATCHER_ORIGIN || 'MISSING'}`);
   console.log(`[Carboknot proxy] CORS origins: ${ALLOWED_ORIGINS.join(', ') || '(none set)'}`);
 });
@@ -109,6 +129,7 @@ function handleHealth(res) {
     uptime_s: Math.floor((Date.now() - STARTED_AT) / 1000),
     now: new Date().toISOString(),
     dedalus_key: DEDALUS_API_KEY ? 'set' : 'missing',
+    k2_key: K2_API_KEY ? 'set' : 'missing',
     swarm_watcher: SWARM_WATCHER_ORIGIN ? 'set' : 'missing'
   });
 }
@@ -200,6 +221,64 @@ async function handleReason(req, res) {
   }
 }
 
+// K2 Think V2 narrates WHY a deterministic Climatiq-grounded number is what
+// it is. The engine's trace is the ground truth; K2 is read-only over it.
+// It must never invent or revise kg values — only cite the dominant stage
+// and the confidence driver already present in the trace.
+async function handleK2Reason(req, res) {
+  const ip = (req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress || '').trim();
+  if (!rateLimitOk(ip)) return json(res, 429, { error: 'rate_limited' });
+
+  const payload = await readJson(req).catch(() => null);
+  if (!payload || !validNumber(payload.kg_total) || !payload.stages) {
+    return json(res, 400, { error: 'bad_payload' });
+  }
+
+  const fallback = {
+    explanation: localFootprintExplanation(payload),
+    dominant_stage: dominantStage(payload.stages),
+    confidence_note: String(payload.confidence_reason || payload?.confidence?.reason || ''),
+    source: 'fallback'
+  };
+
+  if (!K2_API_KEY) return json(res, 200, fallback);
+
+  try {
+    const prompt = buildK2Prompt(payload);
+    const llm = await fetchWithTimeout(
+      K2_API_ENDPOINT,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${K2_API_KEY}`
+        },
+        body: JSON.stringify({
+          model: K2_MODEL,
+          messages: [
+            { role: 'system', content: prompt.system },
+            { role: 'user', content: prompt.user }
+          ],
+          max_tokens: 260,
+          temperature: 0.2
+        })
+      },
+      K2_TIMEOUT_MS
+    );
+    const explanation = llm?.choices?.[0]?.message?.content?.trim();
+    if (!explanation) throw new Error('empty_llm_response');
+    return json(res, 200, {
+      explanation,
+      dominant_stage: fallback.dominant_stage,
+      confidence_note: fallback.confidence_note,
+      source: 'k2_think_v2'
+    });
+  } catch (err) {
+    console.warn('[proxy] /api/k2/reason fallback:', err?.name || 'error');
+    return json(res, 200, fallback);
+  }
+}
+
 // --- helpers ---
 
 function buildReasonPrompt(orig, alt) {
@@ -222,6 +301,54 @@ function localRationale(orig, alt) {
     ? Math.round(((orig.kg_total - alt.kg_total) / orig.kg_total) * 100)
     : 0;
   return `Avoids new-unit manufacturing, the dominant emission stage for this category. Estimated ${pct}% less CO2e based on category-level LCA averages.`;
+}
+
+function buildK2Prompt(p) {
+  const stageLines = Object.entries(p.stages || {})
+    .map(([k, v]) => `  - ${k.replace(/_/g, ' ')}: ${Number(v).toFixed(2)} kg`)
+    .join('\n');
+  const ci = p.confidence || {};
+  const ciLine =
+    validNumber(ci.low) && validNumber(ci.high)
+      ? `Confidence interval: ${Number(ci.low).toFixed(1)} – ${Number(ci.high).toFixed(1)} kg` +
+        (validNumber(ci.width_pct) ? ` (±${Number(ci.width_pct).toFixed(0)}%)` : '')
+      : '';
+  const confReason = String(p.confidence_reason || ci.reason || '').trim();
+  return {
+    system:
+      'You are K2 Think V2, a reasoning model narrating why a product has a given carbon footprint. ' +
+      'The kg CO2e number and per-stage breakdown below are already computed deterministically from ' +
+      'Climatiq-sourced LCA data — they are ground truth and must NEVER be revised, recomputed, or ' +
+      'contradicted. Your job is to explain the breakdown in plain language: which lifecycle stage ' +
+      'dominates, the physical reason it dominates for this category, and what the confidence interval ' +
+      'reflects. Respond in 3 short sentences, max 90 words total. Do not restate the exact kg values. ' +
+      'Do not use emojis. Do not suggest alternatives (a separate step handles that).',
+    user:
+      `Product: "${p.title || 'unspecified'}"\n` +
+      `Price: $${validNumber(p.price) ? Number(p.price).toFixed(2) : 'n/a'}\n` +
+      `Category: ${p.category || 'unknown'}\n` +
+      `Total: ${Number(p.kg_total).toFixed(2)} kg CO2e\n` +
+      `Stages:\n${stageLines}\n` +
+      (ciLine ? `${ciLine}\n` : '') +
+      (confReason ? `Confidence driver: ${confReason}\n` : '') +
+      `Explain which stage dominates and why, grounded in the breakdown above.`
+  };
+}
+
+function dominantStage(stages) {
+  if (!stages || typeof stages !== 'object') return '';
+  let best = '';
+  let bestVal = -Infinity;
+  for (const [k, v] of Object.entries(stages)) {
+    if (validNumber(v) && v > bestVal) { best = k; bestVal = v; }
+  }
+  return best;
+}
+
+function localFootprintExplanation(p) {
+  const stage = dominantStage(p.stages).replace(/_/g, ' ');
+  if (!stage) return 'Per-stage breakdown not available; see the computation steps above.';
+  return `The ${stage} stage dominates this footprint, which is typical for the ${p.category || 'general'} category. The remaining stages contribute smaller shares in the order shown above.`;
 }
 
 async function fetchWithTimeout(url, init, timeoutMs) {

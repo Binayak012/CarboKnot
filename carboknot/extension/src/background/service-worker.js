@@ -13,6 +13,12 @@
 //     extension must keep working if the swarm is down.
 //
 // /api/reason and /api/categorize handlers land in a later phase.
+//
+// K2 Think V2: this worker forwards panel requests for footprint-explanation
+// reasoning to the proxy's /api/k2/reason route. The deterministic trace
+// stays on-device; only the already-public fields (title, price, category,
+// kg_total, stages, confidence) leave the browser, and only when the user
+// expands the "Why this footprint?" section in the panel.
 
 import { putSetting, logEvent } from '../storage/db.js';
 
@@ -23,6 +29,10 @@ export const PROXY_ORIGIN = 'http://localhost:8787';
 const SWARM_STATUS_ALARM = 'swarm_status_refresh';
 const SWARM_STATUS_PERIOD_MIN = 24 * 60;
 const SWARM_FETCH_TIMEOUT_MS = 4000;
+// K2 is a reasoning model; the proxy gives it up to 8s. Budget a bit more
+// here so we surface the proxy's fallback response rather than aborting
+// from the client side.
+const K2_FETCH_TIMEOUT_MS = 10000;
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create(SWARM_STATUS_ALARM, {
@@ -50,6 +60,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     refreshSwarmStatus()
       .then((status) => sendResponse({ ok: true, status }))
       .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+  // Panel → K2 Think V2 narration of the deterministic trace.
+  if (msg?.type === 'k2_reason') {
+    fetchK2Reason(msg.payload)
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((err) => sendResponse({ ok: false, error: err?.name || 'error' }));
     return true;
   }
   return false;
@@ -101,6 +118,51 @@ async function refreshSwarmStatus() {
       reason: err?.name === 'AbortError' ? 'timeout' : 'error'
     }).catch(() => {});
     return fallback;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Forward a footprint-explanation request to the proxy's K2 Think V2 route.
+ * The trace itself stays on-device: only the already-visible fields needed
+ * to narrate the breakdown are sent. Audit-logged as a metadata-only event.
+ *
+ * @param {{
+ *   title: string, price: number, category: string, kg_total: number,
+ *   stages: Record<string, number>,
+ *   confidence: { low: number, high: number, width_pct: number, reason?: string },
+ *   confidence_reason?: string
+ * }} payload
+ * @returns {Promise<{ explanation: string, dominant_stage: string, confidence_note: string, source: 'k2_think_v2' | 'fallback' }>}
+ */
+async function fetchK2Reason(payload) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), K2_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${PROXY_ORIGIN}/api/k2/reason`, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({
+        title: String(payload?.title || ''),
+        price: Number(payload?.price) || 0,
+        category: String(payload?.category || ''),
+        kg_total: Number(payload?.kg_total) || 0,
+        stages: payload?.stages || {},
+        confidence: payload?.confidence || {},
+        confidence_reason: String(payload?.confidence_reason || '')
+      })
+    });
+    if (!res.ok) throw new Error(`k2 http ${res.status}`);
+    const body = await res.json();
+    await logEvent('k2_reason_viewed', { source: body?.source || 'unknown' }).catch(() => {});
+    return {
+      explanation: String(body?.explanation || ''),
+      dominant_stage: String(body?.dominant_stage || ''),
+      confidence_note: String(body?.confidence_note || ''),
+      source: body?.source === 'k2_think_v2' ? 'k2_think_v2' : 'fallback'
+    };
   } finally {
     clearTimeout(timer);
   }

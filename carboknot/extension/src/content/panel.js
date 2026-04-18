@@ -33,6 +33,7 @@ export function openPanel(result) {
     renderHeader(result),
     renderStageBars(result.stages),
     renderAccordion(result.trace),
+    renderK2Explanation(result),
     renderAlternatives(alternatives, { originalKg: result.kg_total, originalPrice })
   );
 
@@ -199,6 +200,108 @@ function renderAccordion(trace) {
   }
 
   return details;
+}
+
+// ------------------------------------------------------------------
+// K2 Think V2 — "Why this footprint?"
+// ------------------------------------------------------------------
+//
+// Climatiq + the local LCA engine produce a deterministic, peer-reviewed
+// number. K2 Think V2 narrates WHY that number looks the way it does,
+// grounded in the same trace already rendered above. It never revises
+// kg_total, stages, or the confidence interval — those stay canonical.
+// The network call is lazy: it only fires when the user expands the
+// section. Fallback text renders synchronously so the UX never blocks.
+
+function renderK2Explanation(result) {
+  const details = document.createElement('details');
+  details.className = 'carboknot-panel-trace carboknot-k2-section';
+
+  const summary = document.createElement('summary');
+  summary.textContent = 'Why this footprint? (K2 Think V2 reasoning)';
+  details.appendChild(summary);
+
+  const body = document.createElement('div');
+  body.className = 'carboknot-trace-section';
+
+  const text = document.createElement('p');
+  text.className = 'carboknot-alt-rationale-text';
+  text.textContent = 'Loading K2 Think V2 reasoning…';
+  body.appendChild(text);
+
+  const tag = document.createElement('span');
+  tag.className = 'carboknot-alt-source-tag';
+  tag.textContent = 'Pending';
+  body.appendChild(tag);
+
+  details.appendChild(body);
+
+  let requested = false;
+  const runOnce = () => {
+    if (requested) return;
+    requested = true;
+
+    // Synchronous local fallback so the user sees something instantly.
+    const localTop = topStage(result.stages);
+    if (localTop) {
+      text.textContent =
+        `The ${localTop.name.replace(/_/g, ' ')} stage dominates (~${localTop.pct}% of the total), ` +
+        `which is typical for the ${result.category} category. ` +
+        `Confidence band: ±${result.confidence.width_pct.toFixed(0)}% — ` +
+        `${result.trace?.confidence_reason || result.confidence.reason || ''}`.trim();
+    }
+
+    const payload = {
+      title: result?.trace?.inputs?.title || '',
+      price: Number(result?.trace?.inputs?.price) || 0,
+      category: result.category,
+      kg_total: result.kg_total,
+      stages: result.stages,
+      confidence: {
+        low: result.confidence.low,
+        high: result.confidence.high,
+        width_pct: result.confidence.width_pct,
+        reason: result.confidence.reason
+      },
+      confidence_reason: result.trace?.confidence_reason || result.confidence.reason || ''
+    };
+
+    try {
+      chrome.runtime.sendMessage({ type: 'k2_reason', payload }, (resp) => {
+        if (chrome.runtime.lastError) {
+          tag.textContent = 'Local reasoning';
+          return;
+        }
+        if (resp?.ok && resp.data?.explanation) {
+          text.textContent = resp.data.explanation;
+          tag.textContent = resp.data.source === 'k2_think_v2' ? 'K2 Think V2' : 'Local reasoning';
+        } else {
+          tag.textContent = 'Local reasoning';
+        }
+      });
+    } catch (_) {
+      tag.textContent = 'Local reasoning';
+    }
+  };
+
+  // Kick off on first expand. If the <details> is already open (browser
+  // restore), the toggle event still fires on first user interaction —
+  // so also run immediately if `open` is already true at mount.
+  details.addEventListener('toggle', () => {
+    if (details.open) runOnce();
+  });
+  if (details.open) runOnce();
+
+  return details;
+}
+
+function topStage(stages) {
+  const entries = Object.entries(stages || {}).filter(([, v]) => Number.isFinite(v));
+  if (!entries.length) return null;
+  const total = entries.reduce((s, [, v]) => s + v, 0) || 1;
+  let best = entries[0];
+  for (const e of entries) if (e[1] > best[1]) best = e;
+  return { name: best[0], pct: Math.round((best[1] / total) * 100) };
 }
 
 // ------------------------------------------------------------------
