@@ -1,19 +1,34 @@
 # Dependencies
 node_modules/
 .pnpm-store/
+pnpm-debug.log*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # Vendored tooling (pnpm binary, ~60 MB)
 .tools/
 
 # Build output
 dist/
+build/
+out/
 .vite/
 .turbo/
+.next/
+.cache/
+*.tsbuildinfo
 
 # Editor / OS
 .DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
 .idea/
 .vscode/
+*.swp
+*.swo
+*~
 *.log
 
 # Env
@@ -23,3 +38,9 @@ dist/
 
 # Coverage
 coverage/
+.nyc_output/
+
+# Misc
+*.tmp
+*.bak
+.history/

@@ -1,6 +1,8 @@
 # Carboknot
 
-Zero-trust browser agent that scores the carbon footprint of every e-commerce purchase **on-device**, at the point of sale.
+Browser agent that turns every product page into a **carbon receipt** — peer-reviewed LCA data via Climatiq, cached locally after the first fetch, with minimal disclosed data sharing.
+
+> **Note:** The single source of truth for the team is [`docs/PLAN.md`](../docs/PLAN.md). This README is a short orientation — if it conflicts with the plan, the plan wins.
 
 ## Architecture
 
@@ -8,39 +10,48 @@ Zero-trust browser agent that scores the carbon footprint of every e-commerce pu
 carboknot/
 ├── extension/          Chrome MV3 extension (Vite + @crxjs)
 │   └── src/
-│       ├── engine/       Deterministic LCA math + trace object (the d_model core)
-│       ├── storage/      Dexie.js — local-only view + audit history
-│       ├── inference/    3-tier categorizer (regex → WebLLM → proxy fallback)
-│       ├── content/      Amazon / eBay DOM adapters, injected badge, panel
-│       ├── background/   Service worker, proxy client
-│       └── dashboard/    React + Orchids-style local analytics (reads IndexedDB)
-└── proxy/              Daedalus-hosted stateless proxy (no DB, no logs)
-                        — holds K2 Think key, forwards /api/reason & /api/categorize
+│       ├── engine/       Carbon math: Climatiq-backed primary path + local fallback
+│       ├── storage/      Dexie.js — views, audit_log, settings, climatiq_cache
+│       ├── inference/    Category detection (regex + WebLLM)
+│       ├── content/      dispatcher.js + per-site adapters (amazon, ebay, walmart, target, bestbuy, generic)
+│       ├── background/   Service worker — the ONLY place outbound fetch lives
+│       └── dashboard/    React dashboard: trend, budget ring, top categories, recent views, privacy receipt
+└── proxy/              Render-hosted stateless proxy
+                        — holds Climatiq + Dedalus keys, forwards /api/climatiq & /api/reason
 ```
 
-### Zero-trust invariants
+## Data-sharing posture
 
-1. **No user data leaves the browser** except the two explicit, user-visible flows:
-   - `/api/categorize` — sends a product **title only** when both regex and WebLLM fail.
-   - `/api/reason` — sends two titles + two kg values when the user clicks "Why is this better?".
-2. **No backend database.** History lives in IndexedDB (Dexie). The proxy is stateless.
-3. **Every number is traceable.** `computeCarbon` always returns a `trace` object: inputs, lookup source, computation steps, confidence interval, methodology version.
+Carboknot is **not** a zero-trust app. It is a **data-first carbon receipt with minimal disclosed sharing**. Two outbound calls exist, and both are user-visible:
+
+1. **`/api/climatiq`** — on first view of a new `(category, price_bucket)` pair. We send only an ISIC4 classification code and a price; nothing else. Results are cached in IndexedDB and reused forever.
+2. **`/api/reason`** — only when the user clicks "Why is this lower carbon?" on an alternative. We send two product titles and two kg values to Dedalus GPT-5 for a two-sentence rationale.
+
+No titles, URLs, identity, or browsing history are transmitted for carbon lookups. Open DevTools' Network tab to verify.
 
 ## Development
 
 ```bash
 pnpm install
 pnpm dev              # builds extension in watch mode into extension/dist
-pnpm proxy            # runs the Daedalus proxy locally on :8787
+pnpm proxy            # runs the Render-style proxy locally on :8787
 pnpm test:engine      # smoke-tests the carbon math engine in Node
 ```
 
 Load `extension/dist` as an unpacked extension in Chrome (`chrome://extensions` → Developer mode → Load unpacked).
 
-## Build phases
+## Team
 
-- **Phase 1** (this commit) — local engine, LCA dataset, Dexie storage, MV3 scaffold.
-- **Phase 2** — stateless Daedalus proxy.
-- **Phase 3** — 3-tier AI categorizer (regex / WebLLM / proxy).
-- **Phase 4** — Amazon + eBay DOM adapters, injected badge + interpretability panel.
-- **Phase 5** — React Orchids dashboard as a `web_accessible_resource`.
+- **Rahul** — Render deploy, Dedalus Machine, key management, integration, pitch.
+- **Person A** — runs the big Cursor prompt; implements adapters, Climatiq client, service-worker wiring, proxy.
+- **Person B** — dashboard owner (`extension/src/dashboard/App.jsx`, `Settings.jsx`, `seed.js`): trend, budget ring, categories, recent views, **privacy receipt** section.
+- **Person C** — `docs/METHODOLOGY.md`, slide deck, demo script.
+
+See [`docs/PLAN.md`](../docs/PLAN.md) for the full locked plan, per-role task list, schedule, and cutoff rules.
+
+## Sponsors referenced
+
+- **Telora** — pitch framing (primary target).
+- **Dedalus Labs** — LLM for alternative reasoning + Dedalus Machine for cache-warming job.
+- **Climatiq** — peer-reviewed LCA data source (cited for credibility, not a hackathon sponsor).
+- **Orchids** — stretch, mention if dashboard looks premium.
