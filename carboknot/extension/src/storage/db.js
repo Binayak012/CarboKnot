@@ -34,6 +34,16 @@ db.version(1).stores({
   audit_log: '++id, event_type, timestamp'
 });
 
+// v2 adds a key-value settings store. Used by the dashboard for the monthly
+// budget input, by the service worker for the Dedalus swarm cache-status
+// heartbeat (key 'swarm_status'), and for any future local preferences.
+// Rows shape: { key: string, value: any }.
+db.version(2).stores({
+  views:     '++id, url, occurred_at, category, merchant',
+  audit_log: '++id, event_type, timestamp',
+  settings:  'key'
+});
+
 /**
  * Append a product view to the local history.
  * @param {Object} input
@@ -111,10 +121,31 @@ export async function getAuditLog(limit) {
 }
 
 /**
+ * Read a single settings value. Returns `undefined` if the key is unset.
+ * @param {string} key
+ * @returns {Promise<any>}
+ */
+export async function getSetting(key) {
+  const row = await db.settings.get(key);
+  return row?.value;
+}
+
+/**
+ * Write a settings value. Overwrites any prior value for the same key.
+ * @param {string} key
+ * @param {any} value
+ * @returns {Promise<string>} the key
+ */
+export async function putSetting(key, value) {
+  return db.settings.put({ key, value });
+}
+
+/**
  * Wipe all local data. Used by the "Reset" action in Settings.
  */
 export async function resetAll() {
   await db.views.clear();
   await db.audit_log.clear();
+  await db.settings.clear();
   await logEvent('reset_all', {});
 }

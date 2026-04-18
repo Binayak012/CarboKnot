@@ -11,10 +11,14 @@ export default defineManifest({
     default_popup: 'src/popup/popup.html',
     default_title: 'Carboknot'
   },
-  permissions: ['storage'],
+  permissions: ['storage', 'alarms'],
   host_permissions: [
     'https://www.amazon.com/*',
-    'https://www.ebay.com/*'
+    'https://www.ebay.com/*',
+    // Dedalus swarm status + K2 Think reasoning proxy. Keep in sync with
+    // PROXY_ORIGIN in src/background/service-worker.js. Add the Render URL
+    // here once the proxy is deployed.
+    'http://localhost:8787/*'
   ],
   background: {
     service_worker: 'src/background/service-worker.js',
