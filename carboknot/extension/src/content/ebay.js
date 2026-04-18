@@ -2,7 +2,6 @@
 // Identical flow to amazon.js with only the DOM selectors and URL pattern changed.
 
 import { computeCarbon } from '../engine/carbon.js';
-import { logView } from '../storage/db.js';
 import { openPanel } from './panel.js';
 
 const PRODUCT_URL_RE = /\/itm\/\d+/;
@@ -106,8 +105,9 @@ async function run() {
 
   renderBadge(result, findAnchor());
 
-  try {
-    await logView({
+  chrome.runtime.sendMessage({
+    type: 'log_view',
+    data: {
       url: location.href,
       title,
       price,
@@ -116,10 +116,8 @@ async function run() {
       merchant: MERCHANT,
       kg_total: result.kg_total,
       trace: result.trace
-    });
-  } catch (_) {
-    // Storage failures must not break the page.
-  }
+    }
+  }).catch(() => {});
 }
 
 run();

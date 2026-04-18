@@ -8,7 +8,8 @@
     "dev": "pnpm --filter carboknot-extension dev",
     "build": "pnpm --filter carboknot-extension build",
     "proxy": "pnpm --filter carboknot-proxy dev",
-    "test:engine": "node extension/src/engine/carbon.test.mjs"
+    "test:engine": "node extension/src/engine/carbon.test.mjs",
+    "test:extension": "node extension/src/extension.test.mjs"
   },
   "pnpm": {
     "onlyBuiltDependencies": ["esbuild"]

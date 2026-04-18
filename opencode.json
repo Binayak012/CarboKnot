@@ -1,0 +1,9 @@
+{
+  "mcp": {
+    "knot-docs": {
+      "type": "remote",
+      "url": "https://docs.knotapi.com/mcp",
+      "enabled": true
+    }
+  }
+}

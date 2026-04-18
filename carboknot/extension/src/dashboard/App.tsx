@@ -292,20 +292,28 @@ export default function App() {
   const [filterMerchant, setFilterMerchant] = useState<string>('all');
   const [hoveredCat, setHoveredCat] = useState<string | null>(null);
   const [chartMode, setChartMode] = useState<'area' | 'bar'>('area');
+  const [filterType, setFilterType] = useState<'all' | 'confirmed' | 'browsing'>('all');
 
   const methodologyVersion = useMemo(() => getMethodologyVersion(rows), [rows]);
 
+  const purchasedRows = useMemo(() => rows.filter((r) => r.purchased), [rows]);
+  const viewedRows = useMemo(() => rows.filter((r) => !r.purchased), [rows]);
+
   const totalKg = useMemo(
-    () => rows.reduce((s, r) => s + r.kg_total, 0),
-    [rows]
+    () => purchasedRows.reduce((s, r) => s + r.kg_total, 0),
+    [purchasedRows]
   );
   const totalCiLow = useMemo(
-    () => rows.reduce((s, r) => s + r.kg_ci_low, 0),
-    [rows]
+    () => purchasedRows.reduce((s, r) => s + r.kg_ci_low, 0),
+    [purchasedRows]
   );
   const totalCiHigh = useMemo(
-    () => rows.reduce((s, r) => s + r.kg_ci_high, 0),
-    [rows]
+    () => purchasedRows.reduce((s, r) => s + r.kg_ci_high, 0),
+    [purchasedRows]
+  );
+  const viewedKg = useMemo(
+    () => viewedRows.reduce((s, r) => s + r.kg_total, 0),
+    [viewedRows]
   );
   const totalCi = (totalCiHigh - totalCiLow) / 2;
   const milesDriven = Math.round(totalKg * 2.5);
@@ -323,19 +331,19 @@ export default function App() {
   const DAY = 86400000;
   const thisWeekKg = useMemo(
     () =>
-      rows
+      purchasedRows
         .filter((r) => r.ts >= now - 7 * DAY)
         .reduce((s, r) => s + r.kg_total, 0),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [rows]
+    [purchasedRows]
   );
   const lastWeekKg = useMemo(
     () =>
-      rows
+      purchasedRows
         .filter((r) => r.ts >= now - 14 * DAY && r.ts < now - 7 * DAY)
         .reduce((s, r) => s + r.kg_total, 0),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [rows]
+    [purchasedRows]
   );
   const weekDelta =
     lastWeekKg > 0 ? ((thisWeekKg - lastWeekKg) / lastWeekKg) * 100 : 0;
@@ -347,9 +355,9 @@ export default function App() {
   ).getTime();
   const monthKg = useMemo(
     () =>
-      rows.filter((r) => r.ts >= startOfMonth).reduce((s, r) => s + r.kg_total, 0),
+      purchasedRows.filter((r) => r.ts >= startOfMonth).reduce((s, r) => s + r.kg_total, 0),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [rows]
+    [purchasedRows]
   );
   const budgetPct = Math.min(100, (monthKg / MONTHLY_BUDGET) * 100);
   const budgetColor =
@@ -405,10 +413,16 @@ export default function App() {
   );
 
   const sortedRows = useMemo(() => {
+    const byType =
+      filterType === 'confirmed'
+        ? rows.filter((r) => r.purchased)
+        : filterType === 'browsing'
+        ? rows.filter((r) => !r.purchased)
+        : rows;
     const filtered =
       filterMerchant === 'all'
-        ? rows
-        : rows.filter((r) => r.merchant === filterMerchant);
+        ? byType
+        : byType.filter((r) => r.merchant === filterMerchant);
     return [...filtered].sort((a, b) => {
       let av: number | string, bv: number | string;
       if (sortKey === 'ts') {
@@ -495,11 +509,11 @@ export default function App() {
           <SectionLabel hint="last 30 days">Carbon Footprint Overview</SectionLabel>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <KpiCard
-              label="Total CO₂e"
+              label="Confirmed CO₂e"
               animatedValue={totalKg}
               decimals={1}
               unit=" kg"
-              sub={<span className="font-mono">± {totalCi.toFixed(1)} kg confidence</span>}
+              sub={<span className="font-mono">{viewedKg.toFixed(1)} kg browsed, not counted</span>}
               icon={<Activity size={14} />}
               accent
               sparkData={last7TrendValues}
@@ -513,16 +527,10 @@ export default function App() {
               icon={<MapPin size={14} />}
             />
             <KpiCard
-              label="Products tracked"
-              animatedValue={rows.length}
+              label="Confirmed buys"
+              animatedValue={purchasedRows.length}
               decimals={0}
-              sub={
-                <span>
-                  {uncertainCount > 0
-                    ? `${uncertainCount} category uncertain`
-                    : 'all categorized'}
-                </span>
-              }
+              sub={<span>{viewedRows.length} browsed, awaiting confirmation</span>}
               icon={<Package size={14} />}
             />
             <KpiCard
@@ -942,8 +950,23 @@ export default function App() {
 
         <section className="fade-in-up fade-in-up-delay-4">
           <div className="flex flex-wrap items-end justify-between gap-3">
-            <SectionLabel hint={`${rows.length} total`}>Recent Views</SectionLabel>
-            <div className="flex items-center gap-1 mb-4 flex-wrap">
+            <SectionLabel hint={`${sortedRows.length} shown`}>Purchase History</SectionLabel>
+            <div className="flex items-center gap-2 mb-4 flex-wrap">
+              <div className="flex items-center gap-1 border border-zinc-800 rounded-lg p-0.5">
+                {(['all', 'confirmed', 'browsing'] as const).map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => setFilterType(t)}
+                    className={`text-[10px] font-semibold capitalize px-2.5 py-1 rounded-md transition-all duration-150 ${
+                      filterType === t
+                        ? 'tab-active'
+                        : 'text-zinc-500 hover:text-zinc-300'
+                    }`}
+                  >
+                    {t === 'confirmed' ? '✓ confirmed' : t === 'browsing' ? '○ browsing' : 'all'}
+                  </button>
+                ))}
+              </div>
               {merchants.map((m) => (
                 <button
                   key={m}
@@ -1022,6 +1045,11 @@ export default function App() {
                     </TableCell>
                     <TableCell className="text-[12px] text-zinc-300 max-w-[260px] group-hover:text-zinc-100 transition-colors">
                       <span className="block truncate">{row.title}</span>
+                      {row.purchased && (
+                        <span className="text-[10px] font-mono bg-emerald-950/40 text-emerald-400 border border-emerald-700/40 rounded-full px-1.5 py-0.5 mt-0.5 inline-block whitespace-nowrap">
+                          confirmed
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell>
                       <span

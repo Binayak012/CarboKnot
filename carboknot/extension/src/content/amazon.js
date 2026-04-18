@@ -7,7 +7,6 @@
 //     db.js handles JSON serialisation for storage.
 
 import { computeCarbon } from '../engine/carbon.js';
-import { logView } from '../storage/db.js';
 import { openPanel } from './panel.js';
 
 const PRODUCT_URL_RE = /\/dp\/[A-Z0-9]+/;
@@ -114,8 +113,9 @@ async function run() {
 
   renderBadge(result, findAnchor());
 
-  try {
-    await logView({
+  chrome.runtime.sendMessage({
+    type: 'log_view',
+    data: {
       url: location.href,
       title,
       price,
@@ -124,10 +124,8 @@ async function run() {
       merchant: MERCHANT,
       kg_total: result.kg_total,
       trace: result.trace
-    });
-  } catch (_) {
-    // Storage failures must not break the page.
-  }
+    }
+  }).catch(() => {});
 }
 
 run();

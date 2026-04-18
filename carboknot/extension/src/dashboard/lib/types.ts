@@ -31,6 +31,7 @@ export interface ViewRow {
   price_usd: number;
   data_source: 'climatiq_fresh' | 'climatiq_cached' | 'local_fallback';
   trace: string;
+  purchased?: boolean;
 }
 
 export interface ClimatiqCacheStats {

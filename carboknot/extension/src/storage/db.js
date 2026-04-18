@@ -34,12 +34,18 @@ db.version(1).stores({
   audit_log: '++id, event_type, timestamp'
 });
 
-// v2 adds a key-value settings store. Used by the dashboard for the monthly
-// budget input, by the service worker for the Dedalus swarm cache-status
-// heartbeat (key 'swarm_status'), and for any future local preferences.
-// Rows shape: { key: string, value: any }.
+// v2 adds a key-value settings store.
 db.version(2).stores({
   views:     '++id, url, occurred_at, category, merchant',
+  audit_log: '++id, event_type, timestamp',
+  settings:  'key'
+});
+
+// v3 adds purchased confirmation fields to views.
+// purchased: true once a Knot transaction webhook confirms the item was bought.
+// knot_transaction_id: the Knot transaction ID for audit trail.
+db.version(3).stores({
+  views:     '++id, url, occurred_at, category, merchant, purchased',
   audit_log: '++id, event_type, timestamp',
   settings:  'key'
 });
@@ -138,6 +144,48 @@ export async function getSetting(key) {
  */
 export async function putSetting(key, value) {
   return db.settings.put({ key, value });
+}
+
+/**
+ * Mark a view row as a confirmed purchase from a Knot transaction webhook.
+ * @param {number} viewId
+ * @param {string} knotTransactionId
+ */
+export async function markPurchased(viewId, knotTransactionId) {
+  await db.views.update(viewId, {
+    purchased: true,
+    knot_transaction_id: knotTransactionId
+  });
+  await logEvent('purchase_confirmed', { view_id: viewId });
+}
+
+/**
+ * Read all view rows that match a merchant, amount window, and time window.
+ * Used by the service worker to match Knot transactions to local browse history.
+ * @param {{ merchant: string, amount_usd: number, occurred_at: string }} tx
+ * @returns {Promise<Array>}
+ */
+export async function findMatchingViews({ merchant, amount_usd, occurred_at }) {
+  const txTime = Date.parse(occurred_at);
+  const WINDOW_MS = 4 * 60 * 60 * 1000; // ±4 hours
+  const rows = await db.views
+    .where('merchant').equals(merchant)
+    .filter((row) => {
+      if (row.purchased) return false;
+      const rowTime = Date.parse(row.occurred_at);
+      if (Math.abs(rowTime - txTime) > WINDOW_MS) return false;
+      // Transaction total includes tax/shipping so it may exceed page price.
+      // Accept if transaction is between 90% and 150% of the page price.
+      const ratio = amount_usd / row.price;
+      return ratio >= 0.9 && ratio <= 1.5;
+    })
+    .toArray();
+  // Return closest match first.
+  rows.sort((a, b) =>
+    Math.abs(Date.parse(a.occurred_at) - txTime) -
+    Math.abs(Date.parse(b.occurred_at) - txTime)
+  );
+  return rows;
 }
 
 /**

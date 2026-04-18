@@ -1,0 +1,10 @@
+{
+  "context_servers": {
+    "knot-docs": {
+      "source": "custom",
+      "type": "http",
+      "url": "https://docs.knotapi.com/mcp",
+      "headers": {}
+    }
+  }
+}

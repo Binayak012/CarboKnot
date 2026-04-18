@@ -17,6 +17,13 @@
 //                              takes { original, alternative } where each is
 //                              { title, kg_total, category }. Calls Dedalus LLM
 //                              once with a 4s timeout. Falls back silently.
+//   POST /knot/webhook       → receives signed Knot TransactionLink webhook,
+//                              verifies HMAC-SHA256, enqueues confirmed purchase
+//                              (merchant + amount_usd + occurred_at only — no PII).
+//   GET  /knot/pending       → returns unacknowledged confirmed transactions for
+//                              the extension service worker to match locally.
+//   POST /knot/ack           → { ids: string[] } marks items as acknowledged,
+//                              removes them from the in-memory queue.
 //
 // Environment:
 //   DEDALUS_API_KEY              required for /api/reason to work
@@ -25,12 +32,14 @@
 //   SWARM_WATCHER_ORIGIN         required for /swarm/* (e.g. https://watcher.dedalus.cloud)
 //   ALLOWED_ORIGINS              CSV, e.g. chrome-extension://abc,http://localhost:5173
 //   REASON_RATE_LIMIT_PER_MIN    default 10
+//   KNOT_WEBHOOK_SECRET          HMAC-SHA256 signing secret from Knot dashboard
 //   PORT                         default 8787
 
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 
 // --- env bootstrap (tiny .env loader so we don't need dotenv as a dep) ---
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -47,10 +56,65 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
   .map((s) => s.trim())
   .filter(Boolean);
 const REASON_RATE_LIMIT_PER_MIN = Number(process.env.REASON_RATE_LIMIT_PER_MIN) || 10;
+const KNOT_WEBHOOK_SECRET = process.env.KNOT_WEBHOOK_SECRET || '';
 
 const SWARM_TIMEOUT_MS = 4000;
 const REASON_TIMEOUT_MS = 4000;
 const STARTED_AT = Date.now();
+
+// --- Knot confirmed-purchase queue ---
+// In-memory only. Entries are dropped after 2 hours whether or not the
+// extension polls. Max 200 entries guards against webhook flooding.
+// Each entry: { id, merchant, amount_usd, occurred_at }
+// Zero PII — no card numbers, no user IDs, no product titles.
+const KNOT_QUEUE_MAX = 200;
+const KNOT_QUEUE_TTL_MS = 2 * 60 * 60 * 1000;
+const knotQueue = new Map(); // id → { merchant, amount_usd, occurred_at, queued_at }
+
+// Periodic GC — drop entries older than TTL.
+setInterval(() => {
+  const cutoff = Date.now() - KNOT_QUEUE_TTL_MS;
+  for (const [id, entry] of knotQueue) {
+    if (entry.queued_at < cutoff) knotQueue.delete(id);
+  }
+}, 10 * 60 * 1000).unref();
+
+// Knot's webhook signature format:
+//   Header: knot-signature: t=<unix_ms>,v1=<hex_hmac>
+//   HMAC input: "<timestamp>.<raw_body>" with the webhook signing secret.
+// Adjust field names in the payload parser below to match your Knot plan's
+// actual schema — check Knot's dashboard → Webhooks → Event payload docs.
+function verifyKnotSignature(rawBody, sigHeader) {
+  if (!KNOT_WEBHOOK_SECRET) return false;
+  const parts = Object.fromEntries(
+    (sigHeader || '').split(',').map((s) => s.split('='))
+  );
+  const ts = parts['t'];
+  const v1 = parts['v1'];
+  if (!ts || !v1) return false;
+  const expected = createHmac('sha256', KNOT_WEBHOOK_SECRET)
+    .update(`${ts}.${rawBody}`)
+    .digest('hex');
+  try {
+    return timingSafeEqual(Buffer.from(v1, 'hex'), Buffer.from(expected, 'hex'));
+  } catch {
+    return false;
+  }
+}
+
+// Normalise Knot's merchant identifier → our internal merchant slug.
+// Knot sends a merchant object; the `id` field is typically a lowercase slug.
+// Extend this table as you enable more merchants in the Knot dashboard.
+const KNOT_MERCHANT_MAP = {
+  amazon: 'amazon',
+  'amazon.com': 'amazon',
+  ebay: 'ebay',
+  'ebay.com': 'ebay'
+};
+function normaliseMerchant(raw) {
+  const key = String(raw || '').toLowerCase().replace(/^www\./, '');
+  return KNOT_MERCHANT_MAP[key] ?? key;
+}
 
 // --- rate limiter (token bucket per IP, in memory) ---
 const buckets = new Map();
@@ -86,6 +150,9 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/swarm/cache-status') return handleSwarmCacheStatus(res);
     if (req.method === 'GET' && url.pathname === '/swarm/cache') return handleSwarmCache(res);
     if (req.method === 'POST' && url.pathname === '/api/reason') return handleReason(req, res);
+    if (req.method === 'POST' && url.pathname === '/knot/webhook') return handleKnotWebhook(req, res);
+    if (req.method === 'GET' && url.pathname === '/knot/pending') return handleKnotPending(res);
+    if (req.method === 'POST' && url.pathname === '/knot/ack') return handleKnotAck(req, res);
 
     return json(res, 404, { error: 'not_found', path: url.pathname });
   } catch (err) {
@@ -200,6 +267,76 @@ async function handleReason(req, res) {
   }
 }
 
+// --- Knot route handlers ---
+
+async function handleKnotWebhook(req, res) {
+  // Read raw body first so we can verify the signature over the exact bytes.
+  const rawBody = await readRawBody(req, 8192).catch(() => null);
+  if (rawBody === null) return json(res, 400, { error: 'payload_too_large' });
+
+  const sig = req.headers['knot-signature'] || '';
+  if (KNOT_WEBHOOK_SECRET && !verifyKnotSignature(rawBody, sig)) {
+    console.warn('[proxy] /knot/webhook signature mismatch');
+    return json(res, 401, { error: 'invalid_signature' });
+  }
+
+  let payload;
+  try { payload = JSON.parse(rawBody); } catch { return json(res, 400, { error: 'bad_json' }); }
+
+  // Knot event schema (TransactionLink):
+  //   payload.type           e.g. "transaction.created"
+  //   payload.data.id        unique transaction ID
+  //   payload.data.merchant.id   merchant slug
+  //   payload.data.amount    integer cents (USD)
+  //   payload.data.created_at    ISO-8601 string
+  // Adjust these field paths to match your Knot plan's actual schema.
+  if (payload?.type !== 'transaction.created') return json(res, 200, { ok: true, skipped: true });
+
+  const data = payload?.data ?? {};
+  const transactionId = String(data.id ?? '');
+  const merchantRaw = data.merchant?.id ?? data.merchant?.name ?? '';
+  const amountCents = Number(data.amount);
+  const occurredAt = data.created_at ?? new Date().toISOString();
+
+  if (!transactionId || !merchantRaw || !Number.isFinite(amountCents) || amountCents <= 0) {
+    return json(res, 400, { error: 'bad_payload' });
+  }
+
+  // Evict oldest entry if at capacity before inserting.
+  if (knotQueue.size >= KNOT_QUEUE_MAX) {
+    const oldest = [...knotQueue.entries()].sort((a, b) => a[1].queued_at - b[1].queued_at)[0];
+    if (oldest) knotQueue.delete(oldest[0]);
+  }
+
+  knotQueue.set(transactionId, {
+    merchant: normaliseMerchant(merchantRaw),
+    amount_usd: amountCents / 100,
+    occurred_at: occurredAt,
+    queued_at: Date.now()
+  });
+
+  console.log(`[proxy] /knot/webhook queued transaction (queue size: ${knotQueue.size})`);
+  return json(res, 200, { ok: true });
+}
+
+function handleKnotPending(res) {
+  const items = [];
+  for (const [id, entry] of knotQueue) {
+    items.push({ id, merchant: entry.merchant, amount_usd: entry.amount_usd, occurred_at: entry.occurred_at });
+  }
+  return json(res, 200, { items });
+}
+
+async function handleKnotAck(req, res) {
+  const payload = await readJson(req).catch(() => null);
+  const ids = Array.isArray(payload?.ids) ? payload.ids : [];
+  let removed = 0;
+  for (const id of ids) {
+    if (knotQueue.delete(String(id))) removed++;
+  }
+  return json(res, 200, { ok: true, removed });
+}
+
 // --- helpers ---
 
 function buildReasonPrompt(orig, alt) {
@@ -236,18 +373,22 @@ async function fetchWithTimeout(url, init, timeoutMs) {
   }
 }
 
-function readJson(req) {
+function readRawBody(req, maxBytes = 8192) {
   return new Promise((resolve, reject) => {
-    let data = '';
+    const chunks = [];
     let size = 0;
     req.on('data', (chunk) => {
       size += chunk.length;
-      if (size > 8192) { reject(new Error('payload_too_large')); req.destroy(); return; }
-      data += chunk;
+      if (size > maxBytes) { reject(new Error('payload_too_large')); req.destroy(); return; }
+      chunks.push(chunk);
     });
-    req.on('end', () => { try { resolve(JSON.parse(data)); } catch (e) { reject(e); } });
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
     req.on('error', reject);
   });
+}
+
+function readJson(req) {
+  return readRawBody(req, 8192).then((raw) => JSON.parse(raw));
 }
 
 function validNumber(n) { return typeof n === 'number' && Number.isFinite(n); }

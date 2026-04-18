@@ -14,7 +14,7 @@
 //
 // /api/reason and /api/categorize handlers land in a later phase.
 
-import { putSetting, logEvent } from '../storage/db.js';
+import { putSetting, logEvent, logView, findMatchingViews, markPurchased } from '../storage/db.js';
 
 // TODO: swap to the real Render URL once the proxy is deployed.
 // Keep this in sync with carboknot/extension/manifest.config.ts host_permissions.
@@ -24,10 +24,18 @@ const SWARM_STATUS_ALARM = 'swarm_status_refresh';
 const SWARM_STATUS_PERIOD_MIN = 24 * 60;
 const SWARM_FETCH_TIMEOUT_MS = 4000;
 
+const KNOT_POLL_ALARM = 'knot_poll';
+const KNOT_POLL_PERIOD_MIN = 15;
+const KNOT_FETCH_TIMEOUT_MS = 6000;
+
 chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create(SWARM_STATUS_ALARM, {
     delayInMinutes: 0.1,
     periodInMinutes: SWARM_STATUS_PERIOD_MIN
+  });
+  chrome.alarms.create(KNOT_POLL_ALARM, {
+    delayInMinutes: 1,
+    periodInMinutes: KNOT_POLL_PERIOD_MIN
   });
   refreshSwarmStatus().catch(() => {});
 });
@@ -35,6 +43,9 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === SWARM_STATUS_ALARM) {
     refreshSwarmStatus().catch(() => {});
+  }
+  if (alarm.name === KNOT_POLL_ALARM) {
+    pollKnotConfirmations().catch(() => {});
   }
 });
 
@@ -49,6 +60,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === 'swarm_status_refresh') {
     refreshSwarmStatus()
       .then((status) => sendResponse({ ok: true, status }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+  if (msg?.type === 'log_view') {
+    logView(msg.data).catch(() => {});
+    return false;
+  }
+  if (msg?.type === 'knot_poll_now') {
+    pollKnotConfirmations()
+      .then(() => sendResponse({ ok: true }))
       .catch(() => sendResponse({ ok: false }));
     return true;
   }
@@ -105,3 +126,54 @@ async function refreshSwarmStatus() {
     clearTimeout(timer);
   }
 }
+
+/**
+ * Poll the proxy for Knot-confirmed purchases, match them against local view
+ * history, mark matches as purchased, then acknowledge the proxy queue.
+ * All matching is done locally — only merchant + amount reach the proxy.
+ */
+async function pollKnotConfirmations() {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), KNOT_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${PROXY_ORIGIN}/knot/pending`, {
+      signal: controller.signal,
+      headers: { accept: 'application/json' }
+    });
+    if (!res.ok) return;
+    const { items } = await res.json();
+    if (!Array.isArray(items) || items.length === 0) return;
+
+    const acknowledged = [];
+    for (const tx of items) {
+      const matches = await findMatchingViews({
+        merchant: tx.merchant,
+        amount_usd: tx.amount_usd,
+        occurred_at: tx.occurred_at
+      });
+      if (matches.length > 0) {
+        await markPurchased(matches[0].id, tx.id);
+      }
+      // Ack regardless — if no match, the view was likely never logged or
+      // already confirmed. Don't re-process on the next poll.
+      acknowledged.push(tx.id);
+    }
+
+    if (acknowledged.length > 0) {
+      await fetch(`${PROXY_ORIGIN}/knot/ack`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ids: acknowledged }),
+        signal: controller.signal
+      }).catch(() => {});
+    }
+  } catch (err) {
+    await logEvent('knot_poll_error', {
+      reason: err?.name === 'AbortError' ? 'timeout' : 'error'
+    }).catch(() => {});
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+self.pollKnotConfirmations = pollKnotConfirmations;
