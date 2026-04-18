@@ -36,7 +36,8 @@ import {
   HardDrive,
   Sparkles,
   Database,
-  Radio
+  Radio,
+  ScrollText
 } from 'lucide-react';
 
 import { Separator } from '@/dashboard/components/ui/separator';
@@ -50,6 +51,7 @@ import {
 } from '@/dashboard/components/ui/table';
 import { useHistory } from '@/dashboard/hooks/useHistory';
 import { useCacheStats } from '@/dashboard/hooks/useCacheStats';
+import { useAuditLog } from '@/dashboard/hooks/useAuditLog';
 import { TraceDrawer } from '@/dashboard/components/TraceDrawer';
 import { SettingsModal } from '@/dashboard/components/SettingsModal';
 import type { ViewRow, Trace } from '@/dashboard/lib/types';
@@ -281,9 +283,51 @@ function SectionLabel({
 type SortKey = 'ts' | 'kg_total' | 'merchant';
 type SortDir = 'asc' | 'desc';
 
+const AUDIT_EVENT_LABEL: Record<string, string> = {
+  view_logged: 'Product view',
+  swarm_status_refreshed: 'Swarm status',
+  k2_reason_viewed: 'K2 footprint narration',
+  alternative_rationale_viewed: 'Alternative rationale',
+  reset_all: 'Local data reset'
+};
+
+const AUDIT_EVENT_COLOR: Record<string, string> = {
+  view_logged: 'bg-zinc-800/60 text-zinc-300 border-zinc-700/50',
+  swarm_status_refreshed: 'bg-sky-950/50 text-sky-300 border-sky-700/40',
+  k2_reason_viewed: 'bg-emerald-950/50 text-emerald-300 border-emerald-700/40',
+  alternative_rationale_viewed: 'bg-emerald-950/40 text-emerald-200 border-emerald-800/40',
+  reset_all: 'bg-rose-950/40 text-rose-300 border-rose-800/40'
+};
+
+function describeAuditDetails(
+  eventType: string,
+  details?: Record<string, unknown>
+): string {
+  if (!details || typeof details !== 'object') return '—';
+  const d = details as Record<string, unknown>;
+  if (eventType === 'k2_reason_viewed') {
+    const src = String(d.source ?? '');
+    if (src === 'k2_think_v2') return 'source: K2 Think V2';
+    if (src === 'fallback') return 'source: fallback';
+    return src ? `source: ${src}` : '—';
+  }
+  if (eventType === 'swarm_status_refreshed') {
+    if (d.ok === true) return `refreshed · ${d.category_count ?? 0} categories`;
+    if (d.ok === false) return `fallback · ${d.reason ?? 'error'}`;
+    return '—';
+  }
+  if (eventType === 'view_logged') {
+    const merchant = d.merchant ? String(d.merchant) : '';
+    const kg = typeof d.kg_total === 'number' ? `${d.kg_total.toFixed(1)} kg` : '';
+    return [merchant, kg].filter(Boolean).join(' · ') || '—';
+  }
+  return '—';
+}
+
 export default function App() {
   const rows = useHistory();
   const cacheStats = useCacheStats();
+  const auditRows = useAuditLog(25);
 
   const [selectedRow, setSelectedRow] = useState<ViewRow | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -945,6 +989,51 @@ export default function App() {
                 Cached results are reused forever.
               </p>
             </div>
+          </div>
+        </section>
+
+        <section className="fade-in-up fade-in-up-delay-3">
+          <SectionLabel hint={`${auditRows.length} events`}>
+            Local activity ledger
+          </SectionLabel>
+          <div className="surface rounded-2xl p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="p-1.5 rounded-md bg-zinc-800/60 ring-1 ring-zinc-700/60 text-zinc-300">
+                <ScrollText size={13} />
+              </div>
+              <span className="text-[11px] text-zinc-400">
+                Append-only, on-device audit log. Never transmitted.
+              </span>
+            </div>
+            {auditRows.length === 0 ? (
+              <div className="text-[11px] font-mono text-zinc-600 py-6 text-center">
+                No events yet. Badge clicks and proxy round-trips will land here.
+              </div>
+            ) : (
+              <ul className="divide-y divide-zinc-900/80">
+                {auditRows.map((row) => (
+                  <li
+                    key={row.id ?? `${row.timestamp}-${row.event_type}`}
+                    className="flex items-center gap-3 py-2 text-[11px]"
+                  >
+                    <span
+                      className={`shrink-0 rounded-full px-2 py-0.5 border font-mono whitespace-nowrap ${
+                        AUDIT_EVENT_COLOR[row.event_type] ??
+                        'bg-zinc-800/60 text-zinc-400 border-zinc-700/50'
+                      }`}
+                    >
+                      {AUDIT_EVENT_LABEL[row.event_type] ?? row.event_type}
+                    </span>
+                    <span className="text-zinc-500 font-mono truncate flex-1">
+                      {describeAuditDetails(row.event_type, row.details)}
+                    </span>
+                    <span className="shrink-0 text-zinc-600 font-mono">
+                      {formatRelativeTime(new Date(row.timestamp).getTime())}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </section>
 
