@@ -1,0 +1,29 @@
+# Carboknot proxy — Render deploy descriptor.
+# Render will auto-detect this when you connect the repo. After the first
+# deploy, set env vars in Render dashboard → Environment:
+#   DEDALUS_API_KEY             (paste your rotated proxy key)
+#   SWARM_WATCHER_ORIGIN        (paste your watcher VM URL, once live)
+#   ALLOWED_ORIGINS             (paste your chrome-extension://<id> origin)
+services:
+  - type: web
+    name: carboknot-proxy
+    runtime: node
+    region: oregon
+    plan: free
+    rootDir: carboknot/proxy
+    buildCommand: echo 'no build step (pure node)'
+    startCommand: node index.js
+    healthCheckPath: /health
+    envVars:
+      - key: DEDALUS_API_ENDPOINT
+        value: https://api.dedaluslabs.ai/v1/chat/completions
+      - key: DEDALUS_MODEL
+        value: openai/gpt-5
+      - key: REASON_RATE_LIMIT_PER_MIN
+        value: "10"
+      - key: DEDALUS_API_KEY
+        sync: false
+      - key: SWARM_WATCHER_ORIGIN
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false

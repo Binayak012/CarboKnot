@@ -1,0 +1,12 @@
+{
+  "name": "carboknot-enricher",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Dedalus Machine 2: classifies ambiguous product titles via Dedalus LLM. Coordinates with watcher.",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node enricher.js",
+    "dev": "node --watch enricher.js"
+  }
+}

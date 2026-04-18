@@ -1,0 +1,12 @@
+{
+  "name": "carboknot-watcher",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Dedalus Machine 1: watches Climatiq data versions + refreshes Carboknot emission-factor cache. Coordinates with enricher.",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node watcher.js",
+    "dev": "node --watch watcher.js"
+  }
+}

@@ -1,9 +1,12 @@
 {
   "name": "carboknot-proxy",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
-  "description": "Stateless Daedalus-hosted proxy for Carboknot. No DB, no logs.",
+  "description": "Stateless proxy for Carboknot: /api/reason via Dedalus LLM + /swarm/* routes to the Dedalus watcher VM. No DB, no body logging.",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "node --watch index.js",
     "start": "node index.js"
