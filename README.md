@@ -1,6 +1,7 @@
 # 🌱 CarboKnot
 
-CarboKnot is a privacy-first carbon footprint tracker for your shopping. The carbon engine runs entirely inside your browser — your purchase data never leaves your device. It intercepts products before you buy, calculates their CO₂e footprint locally, surfaces greener alternatives powered by K2 Think V2 reasoning, and connects to your full purchase history via Knot's API to give you a unified picture of your shopping emissions.
+
+A Chrome extension that shows you the carbon cost of anything you're about to buy — calculated on your device, explained by AI, and connected to your full purchase history so you can actually do something about it. The carbon engine runs entirely inside your browser — your purchase data never leaves your device. It intercepts products before you buy, calculates their CO₂e footprint locally, surfaces greener alternatives powered by K2 Think V2 reasoning, and connects to your full purchase history via Knot's API to give you a unified picture of your shopping emissions.
 
 ---
 
@@ -88,7 +89,7 @@ CarboKnot is a privacy-first carbon footprint tracker for your shopping. The car
 ## 🚀 Getting Started
 
 
-### Installation
+### Installing the extension
 
 ```bash
 # Clone the repo
@@ -165,11 +166,12 @@ The average American generates **~16 tonnes of CO₂** per year, with a major sh
 
 ## 🔮 What's Next
 
+- Publish to the Chrome Web Store for one-click install
+- Expand to Firefox and Edge (WebExtension API compatible)
 - Expand merchant coverage to all Knot-supported retailers
-- Product embedding-based alternative matching for more precise swap suggestions
-- Household/team mode for collective accountability
-- Monthly carbon budget setting with nudge alerts
-- Mobile receipt scanning via Gemini Vision
+- Product embedding-based alternative matching
+- Household/team mode for collective carbon accountability
+- Monthly carbon budget with nudge alerts
 
 ---
 
