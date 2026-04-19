@@ -21,7 +21,7 @@ A Chrome extension that shows you the carbon cost of anything you're about to bu
 - **🔁 Subscription auditing** — Knot's SubManager surfaces the annual carbon cost of recurring services
 - **🤖 AI-powered reasoning** — K2 Think V2 explains *why* a product has a high footprint and *why* the suggested alternative is greener, using chain-of-thought reasoning
 - **🌿 Greener alternatives** — Every purchase gets a lower-carbon swap suggestion
-- **⚡ One-click action** — Offset, swap via Knot's AgenticShopping, or cancel high-carbon subscriptions
+- **⚡ One-click action** — Offset, swap, or cancel high-carbon subscriptions
 - **📊 Unified dashboard** — Interactive UI shows your full footprint, category breakdown, and trends
 
 ---
@@ -48,8 +48,8 @@ A Chrome extension that shows you the carbon cost of anything you're about to bu
 │   ┌─────────────┐   ┌─────────────┐   ┌──────────────────┐  │
 │   │ Climatiq    │   │ K2 Think V2 │   │   Knot API       │  │
 │   │ (CO₂e data) │   │ (Reasoning) │   │ (Transactions +  │  │
-│   └─────────────┘   └─────────────┘   │  SubManager +    │  │
-│                                        │  AgenticShop)    │  │
+│   └─────────────┘   └─────────────┘   │  SubManager)     │  │
+│                                        │                  │  │
 │                                        └──────────────────┘  │
 └──────────────────────────────────────────────────────────────┘
                            │
@@ -76,7 +76,6 @@ A Chrome extension that shows you the carbon cost of anything you're about to bu
 | Carbon Engine | On-device TypeScript module (unit tested) |
 | Transaction Data | Knot TransactionLink (webhooks) |
 | Subscription Data | Knot SubManager |
-| Agentic Shopping | Knot AgenticShopping |
 | Carbon Data | Climatiq API |
 | Carbon Reasoning | K2 Think V2 (LLM360) |
 | Generic AI | Google Gemini API |
@@ -121,7 +120,7 @@ pnpm install
 4. **Badge** — Carbon badge injected next to the price with footprint, confidence, and a greener swap suggestion
 5. **Buy** — Knot's webhook captures the completed transaction, saved to the unified database
 6. **Reflect** — Interactive dashboard shows cumulative footprint, category breakdown, and subscription emissions
-7. **Act** — One-click to offset, swap via Knot AgenticShopping, or cancel a subscription
+7. **Act** — One-click to offset, swap, or cancel a subscription
 
 ### Carbon Pipeline
 <img width="1091" height="661" alt="Screenshot 2026-04-19 at 4 11 52 AM" src="https://github.com/user-attachments/assets/11326550-3dc7-401f-9457-24b17c32c49b" />
