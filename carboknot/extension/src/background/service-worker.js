@@ -20,7 +20,7 @@
 // kg_total, stages, confidence) leave the browser, and only when the user
 // expands the "Why this footprint?" section in the panel.
 
-import { putSetting, logEvent, logView, findMatchingViews, markPurchased } from '../storage/db.js';
+import { putSetting, logEvent, logView, findMatchingViews, getMostRecentUnpurchasedView, markPurchased, upsertSubscription, updateSubscriptionStatus } from '../storage/db.js';
 
 // TODO: swap to the real Render URL once the proxy is deployed.
 // Keep this in sync with carboknot/extension/manifest.config.ts host_permissions.
@@ -38,6 +38,10 @@ const KNOT_POLL_ALARM = 'knot_poll';
 const KNOT_POLL_PERIOD_MIN = 15;
 const KNOT_FETCH_TIMEOUT_MS = 6000;
 
+const KNOT_SUBS_POLL_ALARM = 'knot_subs_poll';
+const KNOT_SUBS_POLL_PERIOD_MIN = 30;
+const KNOT_CANCEL_TIMEOUT_MS = 10000;
+
 chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create(SWARM_STATUS_ALARM, {
     delayInMinutes: 0.1,
@@ -46,6 +50,10 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create(KNOT_POLL_ALARM, {
     delayInMinutes: 1,
     periodInMinutes: KNOT_POLL_PERIOD_MIN
+  });
+  chrome.alarms.create(KNOT_SUBS_POLL_ALARM, {
+    delayInMinutes: 2,
+    periodInMinutes: KNOT_SUBS_POLL_PERIOD_MIN
   });
   refreshSwarmStatus().catch(() => {});
 });
@@ -56,6 +64,10 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
   if (alarm.name === KNOT_POLL_ALARM) {
     pollKnotConfirmations().catch(() => {});
+  }
+  if (alarm.name === KNOT_SUBS_POLL_ALARM) {
+    pollKnotSubscriptions().catch(() => {});
+    pollCancellationResults().catch(() => {});
   }
 });
 
@@ -81,6 +93,18 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     pollKnotConfirmations()
       .then(() => sendResponse({ ok: true }))
       .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+  if (msg?.type === 'knot_subs_refresh') {
+    Promise.all([pollKnotSubscriptions(), pollCancellationResults()])
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+  if (msg?.type === 'cancel_subscription') {
+    cancelSubscription(String(msg?.subscription_id ?? ''))
+      .then((result) => sendResponse(result))
+      .catch(() => sendResponse({ ok: false, error: 'unknown' }));
     return true;
   }
   // Panel → K2 Think V2 narration of the deterministic trace.
@@ -161,19 +185,20 @@ async function pollKnotConfirmations() {
     const { items } = await res.json();
     if (!Array.isArray(items) || items.length === 0) return;
 
+    // Only confirm the single most recent unconfirmed view to avoid bulk-confirming
+    // everything in browse history against the seeded transaction spread.
+    const candidate = await getMostRecentUnpurchasedView('amazon');
+    if (!candidate) return;
+
     const acknowledged = [];
     for (const tx of items) {
-      const matches = await findMatchingViews({
-        merchant: tx.merchant,
-        amount_usd: tx.amount_usd,
-        occurred_at: tx.occurred_at
-      });
-      if (matches.length > 0) {
-        await markPurchased(matches[0].id, tx.id);
+      if (tx.merchant !== 'amazon') continue;
+      const ratio = tx.amount_usd / candidate.price;
+      if (ratio >= 0.9 && ratio <= 1.5) {
+        await markPurchased(candidate.id, tx.id);
+        acknowledged.push(tx.id);
+        break;
       }
-      // Ack regardless — if no match, the view was likely never logged or
-      // already confirmed. Don't re-process on the next poll.
-      acknowledged.push(tx.id);
     }
 
     if (acknowledged.length > 0) {
@@ -233,6 +258,115 @@ async function fetchK2Reason(payload) {
       confidence_note: String(body?.confidence_note || ''),
       source: body?.source === 'k2_think_v2' ? 'k2_think_v2' : 'fallback'
     };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Poll the proxy for new Knot subscriptions (populated by CARD_UPDATED webhook),
+ * upsert each into local IndexedDB, then acknowledge.
+ */
+async function pollKnotSubscriptions() {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), KNOT_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${PROXY_ORIGIN}/knot/subscriptions`, {
+      signal: controller.signal,
+      headers: { accept: 'application/json' }
+    });
+    if (!res.ok) return;
+    const { items } = await res.json();
+    if (!Array.isArray(items) || items.length === 0) return;
+
+    const acknowledged = [];
+    for (const sub of items) {
+      await upsertSubscription(sub);
+      acknowledged.push(sub.id);
+    }
+
+    if (acknowledged.length > 0) {
+      await fetch(`${PROXY_ORIGIN}/knot/subscriptions/ack`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ids: acknowledged }),
+        signal: controller.signal
+      }).catch(() => {});
+    }
+  } catch (err) {
+    await logEvent('knot_subs_poll_error', {
+      reason: err?.name === 'AbortError' ? 'timeout' : 'error'
+    }).catch(() => {});
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Poll the proxy for CANCELLATION_SUCCEEDED / CANCELLATION_FAILED results
+ * and update subscription status in local DB.
+ */
+async function pollCancellationResults() {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), KNOT_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${PROXY_ORIGIN}/knot/cancellations`, {
+      signal: controller.signal,
+      headers: { accept: 'application/json' }
+    });
+    if (!res.ok) return;
+    const { items } = await res.json();
+    if (!Array.isArray(items) || items.length === 0) return;
+
+    const acknowledged = [];
+    for (const item of items) {
+      const status = item.status === 'succeeded' ? 'CANCELLED' : 'CANCEL_FAILED';
+      await updateSubscriptionStatus(item.subscription_id, status);
+      acknowledged.push(item.subscription_id);
+    }
+
+    if (acknowledged.length > 0) {
+      await fetch(`${PROXY_ORIGIN}/knot/cancellations/ack`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ids: acknowledged }),
+        signal: controller.signal
+      }).catch(() => {});
+    }
+  } catch (err) {
+    await logEvent('knot_cancellations_poll_error', {
+      reason: err?.name === 'AbortError' ? 'timeout' : 'error'
+    }).catch(() => {});
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Ask the proxy to cancel a subscription via the Knot API.
+ * Immediately marks the local row as CANCELLING so the UI reflects it.
+ */
+async function cancelSubscription(subscriptionId) {
+  if (!subscriptionId) return { ok: false, error: 'missing_id' };
+  await updateSubscriptionStatus(subscriptionId, 'CANCELLING');
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), KNOT_CANCEL_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${PROXY_ORIGIN}/knot/subscriptions/${subscriptionId}/cancel`, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: { accept: 'application/json' }
+    });
+    if (res.status === 202) {
+      await logEvent('subscription_cancel_requested', { subscription_id: subscriptionId });
+      return { ok: true };
+    }
+    await updateSubscriptionStatus(subscriptionId, 'CANCEL_FAILED');
+    return { ok: false, error: `http_${res.status}` };
+  } catch (err) {
+    await updateSubscriptionStatus(subscriptionId, 'CANCEL_FAILED');
+    return { ok: false, error: err?.name === 'AbortError' ? 'timeout' : 'error' };
   } finally {
     clearTimeout(timer);
   }

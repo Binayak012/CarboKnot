@@ -72,6 +72,9 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
   .filter(Boolean);
 const REASON_RATE_LIMIT_PER_MIN = Number(process.env.REASON_RATE_LIMIT_PER_MIN) || 10;
 const KNOT_WEBHOOK_SECRET = process.env.KNOT_WEBHOOK_SECRET || '';
+const KNOT_CLIENT_ID = process.env.KNOT_CLIENT_ID || '';
+const KNOT_SECRET = process.env.KNOT_SECRET || '';
+const KNOT_API_BASE = (process.env.KNOT_API_BASE || 'https://development.knotapi.com').replace(/\/+$/, '');
 
 const SWARM_TIMEOUT_MS = 4000;
 const REASON_TIMEOUT_MS = 4000;
@@ -96,6 +99,82 @@ setInterval(() => {
     if (entry.queued_at < cutoff) knotQueue.delete(id);
   }
 }, 10 * 60 * 1000).unref();
+
+// --- Knot subscription queue ---
+// Populated by CARD_UPDATED webhook after fetching subscription details from Knot API.
+// Entries survive 24 hours. Max 100 entries.
+const SUB_QUEUE_MAX = 100;
+const SUB_QUEUE_TTL_MS = 24 * 60 * 60 * 1000;
+const subQueue = new Map(); // subscription_id → enriched subscription object
+
+setInterval(() => {
+  const cutoff = Date.now() - SUB_QUEUE_TTL_MS;
+  for (const [id, entry] of subQueue) {
+    if (entry.queued_at < cutoff) subQueue.delete(id);
+  }
+}, 60 * 60 * 1000).unref();
+
+// --- Knot cancellation result queue ---
+// Populated by CANCELLATION_SUCCEEDED / CANCELLATION_FAILED webhooks.
+const cancellationQueue = new Map(); // subscription_id → { status, ts }
+
+setInterval(() => {
+  const cutoff = Date.now() - SUB_QUEUE_TTL_MS;
+  for (const [id, entry] of cancellationQueue) {
+    if (entry.ts < cutoff) cancellationQueue.delete(id);
+  }
+}, 60 * 60 * 1000).unref();
+
+// --- Subscription carbon estimation ---
+// kg CO₂e per annual USD spent, derived from spend-based LCA averages.
+// Streaming/digital: data-center electricity (very low).
+// Telecom: network infrastructure + device manufacturing amortised.
+// Meal kits: food production + cold-chain delivery (high).
+// Physical subscriptions: manufacturing + last-mile shipping.
+const SUB_KG_PER_ANNUAL_USD = {
+  'netflix': 0.12,
+  'hulu': 0.12,
+  'disney+': 0.12,
+  'spotify': 0.08,
+  'apple': 0.10,
+  'verizon': 0.18,
+  't-mobile': 0.18,
+  'spectrum': 0.15,
+  'xfinity internet': 0.15,
+  'xfinity mobile': 0.18,
+  'hellofresh': 2.80,
+  'blue apron': 2.80,
+  'home chef': 2.50,
+  'everyplate': 2.30,
+  'dollar shave club': 0.45,
+  "harry's": 0.45,
+};
+
+function calcAnnualUsd(priceTotal, billingCycle) {
+  const price = parseFloat(priceTotal || '0');
+  if (!Number.isFinite(price) || price <= 0) return 0;
+  switch ((billingCycle || '').toUpperCase()) {
+    case 'WEEKLY':    return price * 52;
+    case 'MONTHLY':   return price * 12;
+    case 'QUARTERLY': return price * 4;
+    case 'ANNUAL': case 'YEARLY': return price;
+    default: return price * 12;
+  }
+}
+
+function estimateKgAnnual(merchantName, annualUsdVal) {
+  const key = (merchantName || '').toLowerCase();
+  let factor = SUB_KG_PER_ANNUAL_USD[key];
+  if (!factor) {
+    const match = Object.entries(SUB_KG_PER_ANNUAL_USD).find(([k]) => key.includes(k));
+    factor = match?.[1] ?? 0.20;
+  }
+  return Math.round(annualUsdVal * factor * 10) / 10;
+}
+
+function knotAuthHeader() {
+  return `Basic ${Buffer.from(`${KNOT_CLIENT_ID}:${KNOT_SECRET}`).toString('base64')}`;
+}
 
 // Knot's webhook signature format:
 //   Header: knot-signature: t=<unix_ms>,v1=<hex_hmac>
@@ -171,7 +250,16 @@ const server = createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/knot/webhook') return handleKnotWebhook(req, res);
     if (req.method === 'GET' && url.pathname === '/knot/pending') return handleKnotPending(res);
     if (req.method === 'POST' && url.pathname === '/knot/ack') return handleKnotAck(req, res);
+    if (req.method === 'GET' && url.pathname === '/knot/subscriptions') return handleKnotSubsPending(res);
+    if (req.method === 'POST' && url.pathname === '/knot/subscriptions/ack') return handleKnotSubsAck(req, res);
+    if (req.method === 'GET' && url.pathname === '/knot/cancellations') return handleKnotCancellationsPending(res);
+    if (req.method === 'POST' && url.pathname === '/knot/cancellations/ack') return handleKnotCancellationsAck(req, res);
+    const cancelMatch = url.pathname.match(/^\/knot\/subscriptions\/([^/]+)\/cancel$/);
+    if (req.method === 'POST' && cancelMatch) return handleKnotSubCancel(req, res, cancelMatch[1]);
     if (req.method === 'POST' && url.pathname === '/api/k2/reason') return handleK2Reason(req, res);
+    if (req.method === 'POST' && url.pathname === '/dev/seed-subs') return handleDevSeedSubs(res);
+    if (req.method === 'POST' && url.pathname === '/dev/seed-txs') return handleDevSeedTxs(req, res);
+    if (req.method === 'GET' && url.pathname === '/dev/queue-status') return handleDevQueueStatus(res);
 
     return json(res, 404, { error: 'not_found', path: url.pathname });
   } catch (err) {
@@ -304,6 +392,15 @@ async function handleKnotWebhook(req, res) {
   let payload;
   try { payload = JSON.parse(rawBody); } catch { return json(res, 400, { error: 'bad_json' }); }
 
+  // Route by event type. Knot uses 'event' (CARD_UPDATED) or 'type' (transaction.created)
+  // depending on the product — normalise both to uppercase for comparison.
+  const eventType = String(payload?.event ?? payload?.type ?? '').toUpperCase();
+
+  if (eventType === 'CARD_UPDATED') return handleCardUpdatedEvent(payload, res);
+  if (eventType === 'CANCELLATION_SUCCEEDED') return handleCancellationEvent(payload, 'succeeded', res);
+  if (eventType === 'CANCELLATION_FAILED') return handleCancellationEvent(payload, 'failed', res);
+  if (eventType === 'NEW_TRANSACTIONS_AVAILABLE') return handleNewTransactionsAvailable(payload, res);
+
   // Knot event schema (TransactionLink):
   //   payload.type           e.g. "transaction.created"
   //   payload.data.id        unique transaction ID
@@ -311,7 +408,7 @@ async function handleKnotWebhook(req, res) {
   //   payload.data.amount    integer cents (USD)
   //   payload.data.created_at    ISO-8601 string
   // Adjust these field paths to match your Knot plan's actual schema.
-  if (payload?.type !== 'transaction.created') return json(res, 200, { ok: true, skipped: true });
+  if (eventType !== 'TRANSACTION.CREATED') return json(res, 200, { ok: true, skipped: true });
 
   const data = payload?.data ?? {};
   const transactionId = String(data.id ?? '');
@@ -340,12 +437,73 @@ async function handleKnotWebhook(req, res) {
   return json(res, 200, { ok: true });
 }
 
+async function handleNewTransactionsAvailable(payload, res) {
+  const externalUserId = String(payload?.external_user_id ?? '');
+  const merchantId = Number(payload?.merchant?.id);
+  const merchantName = String(payload?.merchant?.name ?? '');
+
+  if (!externalUserId || !merchantId) return json(res, 200, { ok: true, skipped: true });
+  if (!KNOT_CLIENT_ID || !KNOT_SECRET) return json(res, 200, { ok: true, skipped: true });
+
+  const SKIP_STATUSES = new Set(['CANCELLED', 'REFUNDED', 'RETURNED']);
+  let cursor = undefined;
+  let queued = 0;
+
+  try {
+    do {
+      const body = { merchant_id: merchantId, external_user_id: externalUserId, limit: 100 };
+      if (cursor) body.cursor = cursor;
+
+      const data = await fetchWithTimeout(`${KNOT_API_BASE}/transactions/sync`, {
+        method: 'POST',
+        headers: { authorization: knotAuthHeader(), 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify(body)
+      }, 8000);
+
+      const transactions = Array.isArray(data?.transactions) ? data.transactions : [];
+      for (const tx of transactions) {
+        if (SKIP_STATUSES.has(tx.order_status)) continue;
+        const amountUsd = parseFloat(tx.price?.total);
+        if (!Number.isFinite(amountUsd) || amountUsd <= 0) continue;
+
+        const txId = String(tx.id ?? `${merchantId}_${tx.datetime}_${amountUsd}`);
+        if (knotQueue.size >= KNOT_QUEUE_MAX) {
+          const oldest = [...knotQueue.entries()].sort((a, b) => a[1].queued_at - b[1].queued_at)[0];
+          if (oldest) knotQueue.delete(oldest[0]);
+        }
+        knotQueue.set(txId, {
+          merchant: normaliseMerchant(merchantName),
+          amount_usd: amountUsd,
+          occurred_at: tx.datetime ?? new Date().toISOString(),
+          queued_at: Date.now()
+        });
+        queued++;
+      }
+      cursor = data?.next_cursor ?? null;
+    } while (cursor);
+
+    console.log(`[proxy] NEW_TRANSACTIONS_AVAILABLE: queued ${queued} transactions for ${merchantName}`);
+  } catch (err) {
+    console.warn('[proxy] NEW_TRANSACTIONS_AVAILABLE sync failed:', err?.name ?? 'error');
+  }
+  return json(res, 200, { ok: true, queued });
+}
+
 function handleKnotPending(res) {
+  seedDemoTxs();
   const items = [];
   for (const [id, entry] of knotQueue) {
     items.push({ id, merchant: entry.merchant, amount_usd: entry.amount_usd, occurred_at: entry.occurred_at });
   }
   return json(res, 200, { items });
+}
+
+function seedDemoTxs() {
+  const occurred_at = new Date().toISOString();
+  const prices = [8.99, 14.99, 24.99, 39.99, 59.99, 89.99, 129.99, 199.99, 299.99, 499.99];
+  for (const p of prices) {
+    knotQueue.set(`dev_amazon_${p}`, { merchant: 'amazon', amount_usd: p, occurred_at, queued_at: Date.now() });
+  }
 }
 
 async function handleKnotAck(req, res) {
@@ -356,6 +514,168 @@ async function handleKnotAck(req, res) {
     if (knotQueue.delete(String(id))) removed++;
   }
   return json(res, 200, { ok: true, removed });
+}
+
+// --- SubscriptionManager handlers ---
+
+async function handleCardUpdatedEvent(payload, res) {
+  const subscriptionIds = (payload?.data?.subscriptions ?? [])
+    .map((s) => String(s?.id ?? ''))
+    .filter(Boolean);
+
+  if (subscriptionIds.length === 0) return json(res, 200, { ok: true, subscriptions: 0 });
+
+  if (!KNOT_CLIENT_ID || !KNOT_SECRET) {
+    console.warn('[proxy] CARD_UPDATED: Knot API keys not configured, skipping subscription fetch');
+    return json(res, 200, { ok: true, subscriptions: 0 });
+  }
+
+  let fetched = 0;
+  for (const subId of subscriptionIds) {
+    try {
+      const sub = await fetchWithTimeout(
+        `${KNOT_API_BASE}/subscriptions/${subId}`,
+        { headers: { authorization: knotAuthHeader(), accept: 'application/json' } },
+        5000
+      );
+      const annualUsdVal = calcAnnualUsd(sub.price?.total, sub.billing_cycle);
+      const kgAnnual = estimateKgAnnual(sub.merchant?.name, annualUsdVal);
+
+      if (subQueue.size >= SUB_QUEUE_MAX) {
+        const oldest = [...subQueue.entries()].sort((a, b) => a[1].queued_at - b[1].queued_at)[0];
+        if (oldest) subQueue.delete(oldest[0]);
+      }
+
+      subQueue.set(subId, {
+        id: sub.id ?? subId,
+        name: sub.name ?? '',
+        merchant_id: sub.merchant?.id ?? 0,
+        merchant_name: sub.merchant?.name ?? '',
+        status: sub.status ?? 'ACTIVE',
+        billing_cycle: sub.billing_cycle ?? 'MONTHLY',
+        next_billing_date: sub.next_billing_date ?? null,
+        is_cancellable: !!sub.is_cancellable,
+        price_total: String(sub.price?.total ?? '0'),
+        price_currency: sub.price?.currency ?? 'USD',
+        annual_usd: annualUsdVal,
+        kg_annual: kgAnnual,
+        queued_at: Date.now()
+      });
+      fetched++;
+    } catch (err) {
+      console.warn(`[proxy] CARD_UPDATED: failed to fetch subscription ${subId}:`, err?.name ?? 'error');
+    }
+  }
+
+  console.log(`[proxy] CARD_UPDATED: queued ${fetched}/${subscriptionIds.length} subscriptions`);
+  return json(res, 200, { ok: true, subscriptions: fetched });
+}
+
+function handleCancellationEvent(payload, status, res) {
+  const subId = String(
+    payload?.data?.subscription_id ?? payload?.data?.id ?? ''
+  );
+  if (subId) {
+    cancellationQueue.set(subId, { status, ts: Date.now() });
+    console.log(`[proxy] cancellation ${status} for subscription ${subId}`);
+  }
+  return json(res, 200, { ok: true });
+}
+
+function handleKnotSubsPending(res) {
+  const items = [];
+  for (const [, entry] of subQueue) items.push(entry);
+  return json(res, 200, { items });
+}
+
+async function handleKnotSubsAck(req, res) {
+  const payload = await readJson(req).catch(() => null);
+  const ids = Array.isArray(payload?.ids) ? payload.ids : [];
+  let removed = 0;
+  for (const id of ids) {
+    if (subQueue.delete(String(id))) removed++;
+  }
+  return json(res, 200, { ok: true, removed });
+}
+
+function handleKnotCancellationsPending(res) {
+  const items = [];
+  for (const [id, entry] of cancellationQueue) {
+    items.push({ subscription_id: id, status: entry.status });
+  }
+  return json(res, 200, { items });
+}
+
+async function handleKnotCancellationsAck(req, res) {
+  const payload = await readJson(req).catch(() => null);
+  const ids = Array.isArray(payload?.ids) ? payload.ids : [];
+  let removed = 0;
+  for (const id of ids) {
+    if (cancellationQueue.delete(String(id))) removed++;
+  }
+  return json(res, 200, { ok: true, removed });
+}
+
+async function handleKnotSubCancel(req, res, subId) {
+  if (!KNOT_CLIENT_ID || !KNOT_SECRET) {
+    return json(res, 503, { error: 'knot_not_configured' });
+  }
+  try {
+    await fetchWithTimeout(
+      `${KNOT_API_BASE}/subscriptions/${subId}/cancel`,
+      { method: 'POST', headers: { authorization: knotAuthHeader(), accept: 'application/json' } },
+      8000
+    );
+    return json(res, 202, { ok: true });
+  } catch (err) {
+    const httpStatus = err?.message?.startsWith('http_')
+      ? parseInt(err.message.slice(5), 10)
+      : 500;
+    return json(res, httpStatus >= 400 && httpStatus < 500 ? httpStatus : 500, {
+      error: 'cancel_failed',
+      reason: err?.name ?? 'error'
+    });
+  }
+}
+
+// Dev-only: seed the subscription queue with demo data for hackathon demos.
+function handleDevSeedSubs(res) {
+  const demos = [
+    { id: 'sub_hf_001', name: 'HelloFresh Weekly Box', merchant_id: 101, merchant_name: 'HelloFresh', status: 'ACTIVE', billing_cycle: 'weekly', next_billing_date: '2026-04-25', is_cancellable: true, price_total: '59.94', price_currency: 'USD', annual_usd: 3116.88, kg_annual: 431 },
+    { id: 'sub_nf_001', name: 'Netflix Standard', merchant_id: 102, merchant_name: 'Netflix', status: 'ACTIVE', billing_cycle: 'monthly', next_billing_date: '2026-05-01', is_cancellable: true, price_total: '15.49', price_currency: 'USD', annual_usd: 185.88, kg_annual: 22 },
+    { id: 'sub_sp_001', name: 'Spotify Premium', merchant_id: 103, merchant_name: 'Spotify', status: 'ACTIVE', billing_cycle: 'monthly', next_billing_date: '2026-05-03', is_cancellable: true, price_total: '12.99', price_currency: 'USD', annual_usd: 155.88, kg_annual: 12 },
+    { id: 'sub_vz_001', name: 'Verizon Unlimited Plus', merchant_id: 104, merchant_name: 'Verizon', status: 'ACTIVE', billing_cycle: 'monthly', next_billing_date: '2026-05-05', is_cancellable: false, price_total: '80.00', price_currency: 'USD', annual_usd: 960, kg_annual: 173 },
+    { id: 'sub_dsc_001', name: 'Dollar Shave Club', merchant_id: 105, merchant_name: 'Dollar Shave Club', status: 'CANCELLED', billing_cycle: 'monthly', next_billing_date: null, is_cancellable: false, price_total: '9.00', price_currency: 'USD', annual_usd: 108, kg_annual: 49 },
+  ];
+  for (const sub of demos) subQueue.set(sub.id, { ...sub, queued_at: Date.now() });
+  console.log(`[proxy] /dev/seed-subs: injected ${demos.length} demo subscriptions`);
+  return json(res, 200, { ok: true, seeded: demos.length });
+}
+
+// Dev-only: seed the transaction queue with Amazon purchases at the given price.
+// Body: { price_usd: number }  (defaults to a spread of common prices if omitted)
+async function handleDevSeedTxs(req, res) {
+  const payload = await readJson(req).catch(() => ({}));
+  const priceUsd = Number(payload?.price_usd);
+
+  if (Number.isFinite(priceUsd) && priceUsd > 0) {
+    const occurred_at = new Date().toISOString();
+    knotQueue.set(`dev_amazon_${priceUsd}_${Date.now()}`, { merchant: 'amazon', amount_usd: priceUsd, occurred_at, queued_at: Date.now() });
+    console.log(`[proxy] /dev/seed-txs: injected $${priceUsd} amazon transaction`);
+  } else {
+    seedDemoTxs();
+  }
+  return json(res, 200, { ok: true, queue_size: knotQueue.size });
+}
+
+// Dev-only: inspect queue sizes for debugging.
+function handleDevQueueStatus(res) {
+  return json(res, 200, {
+    knot_queue: knotQueue.size,
+    sub_queue: subQueue.size,
+    cancellation_queue: cancellationQueue.size,
+    knot_items: [...knotQueue.entries()].map(([id, e]) => ({ id, merchant: e.merchant, amount_usd: e.amount_usd, occurred_at: e.occurred_at }))
+  });
 }
 
 // K2 Think V2 narrates WHY a deterministic Climatiq-grounded number is what

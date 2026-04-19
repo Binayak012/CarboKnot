@@ -44,7 +44,10 @@ import {
   Sprout,
   Mountain,
   Globe,
-  Trees
+  Trees,
+  XCircle,
+  RefreshCw,
+  Flame
 } from 'lucide-react';
 
 import {
@@ -58,9 +61,10 @@ import {
 import { useHistory } from '@/dashboard/hooks/useHistory';
 import { useCacheStats } from '@/dashboard/hooks/useCacheStats';
 import { useAuditLog } from '@/dashboard/hooks/useAuditLog';
+import { useSubscriptions } from '@/dashboard/hooks/useSubscriptions';
 import { TraceDrawer } from '@/dashboard/components/TraceDrawer';
 import { SettingsModal } from '@/dashboard/components/SettingsModal';
-import type { ViewRow, Trace } from '@/dashboard/lib/types';
+import type { ViewRow, Trace, SubscriptionRow } from '@/dashboard/lib/types';
 import {
   formatRelativeTime,
   sourceBadgeLabel,
@@ -196,7 +200,8 @@ const SECTIONS = [
   { id: 'recent', code: '05', label: 'Recent' },
   { id: 'privacy', code: '06', label: 'Privacy' },
   { id: 'activity', code: '07', label: 'Activity' },
-  { id: 'methodology', code: '08', label: 'Method' }
+  { id: 'methodology', code: '08', label: 'Method' },
+  { id: 'subscriptions', code: '09', label: 'Subs' }
 ] as const;
 
 const AUDIT_EVENT_LABEL: Record<string, string> = {
@@ -473,6 +478,7 @@ export default function App() {
   } = useHistory();
   const { stats: cacheStats } = useCacheStats();
   const { rows: auditRows, isSeed: auditIsSeed } = useAuditLog(25);
+  const { subs, refresh: refreshSubs, cancel: cancelSub } = useSubscriptions();
   const showingDemoData = historyIsSeed || auditIsSeed;
 
   const [selectedRow, setSelectedRow] = useState<ViewRow | null>(null);
@@ -2260,6 +2266,213 @@ export default function App() {
               local-first · no telemetry · open source
             </span>
           </div>
+        </section>
+
+        {/* ============================================================
+            SECTION 09 — SUBSCRIPTION CARBON AUDIT (Knot SubscriptionManager)
+           ============================================================ */}
+        <section id="subscriptions" className="fade-in-up scroll-mt-8">
+          <PosterHeader
+            index="09"
+            kicker="Knot SubscriptionManager"
+            title="Subscription Audit"
+            hint={
+              subs.length > 0
+                ? `${subs.length} subscription${subs.length !== 1 ? 's' : ''} · ${subs.reduce((s, r) => s + r.kg_annual, 0).toFixed(0)} kg CO₂e/yr`
+                : 'Link a merchant via CardSwitcher to begin'
+            }
+          />
+
+          {subs.length === 0 ? (
+            <div className="tile p-8 corner-mark">
+              <div className="flex items-start justify-between mb-6">
+                <div>
+                  <div className="eyebrow-acid mb-2">No subscriptions synced yet</div>
+                  <p className="text-sm text-zinc-400 font-mono max-w-[60ch] leading-relaxed">
+                    When you switch a card via Knot's CardSwitcher, the{' '}
+                    <span className="text-zinc-200">CARD_UPDATED</span> webhook
+                    automatically discovers active subscriptions on that merchant
+                    account. Their annual carbon cost appears here.
+                  </p>
+                </div>
+                <button
+                  onClick={refreshSubs}
+                  className="btn-block btn-block-sm flex-shrink-0"
+                  title="Check for new subscriptions"
+                >
+                  <RefreshCw size={11} />
+                  Refresh
+                </button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
+                {(['Netflix · 26 kg/yr', 'HelloFresh · ~430 kg/yr', 'T-Mobile · ~65 kg/yr'] as const).map((ex) => (
+                  <div key={ex} className="tile-flat px-4 py-3 opacity-40">
+                    <div className="stencil text-[9px] text-zinc-500">Example</div>
+                    <div className="display-mono text-zinc-400 text-[15px] mt-1">{ex}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Summary row */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-4">
+                <MicroStat
+                  label="Total annual CO₂e"
+                  value={`${subs.reduce((s, r) => s + r.kg_annual, 0).toFixed(0)} kg`}
+                  sub="from all active subscriptions"
+                  icon={<Flame size={14} />}
+                  acid
+                />
+                <MicroStat
+                  label="Active subscriptions"
+                  value={String(subs.filter((s) => s.status === 'ACTIVE').length)}
+                  sub={`${subs.filter((s) => s.is_cancellable).length} cancellable via Knot`}
+                  icon={<Radio size={14} />}
+                />
+                <MicroStat
+                  label="Highest emitter"
+                  value={
+                    subs.length > 0
+                      ? `${[...subs].sort((a, b) => b.kg_annual - a.kg_annual)[0].merchant_name}`
+                      : '—'
+                  }
+                  sub={
+                    subs.length > 0
+                      ? `${[...subs].sort((a, b) => b.kg_annual - a.kg_annual)[0].kg_annual.toFixed(0)} kg CO₂e/yr`
+                      : ''
+                  }
+                  icon={<AlertTriangle size={14} />}
+                />
+                <MicroStat
+                  label="Cancelled"
+                  value={String(subs.filter((s) => s.status === 'CANCELLED').length)}
+                  sub="confirmed via Knot webhook"
+                  icon={<ShieldCheck size={14} />}
+                />
+              </div>
+
+              {/* Subscription rows */}
+              <div className="tile-ink corner-mark overflow-hidden">
+                <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--rule)]">
+                  <div className="eyebrow">Linked subscriptions</div>
+                  <button
+                    onClick={refreshSubs}
+                    className="btn-block btn-block-sm"
+                    title="Refresh subscriptions"
+                  >
+                    <RefreshCw size={10} />
+                    Refresh
+                  </button>
+                </div>
+                <div className="divide-y divide-[var(--rule)]">
+                  {[...subs]
+                    .sort((a, b) => b.kg_annual - a.kg_annual)
+                    .map((sub) => {
+                      const tierColor =
+                        sub.kg_annual >= 200
+                          ? '#ef4444'
+                          : sub.kg_annual >= 50
+                          ? '#f59e0b'
+                          : ACID;
+                      const isCancelling = sub.status === 'CANCELLING';
+                      const isCancelled = sub.status === 'CANCELLED';
+                      const isFailed = sub.status === 'CANCEL_FAILED';
+                      return (
+                        <div
+                          key={sub.id}
+                          className="flex items-center gap-4 px-5 py-4 hover:bg-[rgba(182,255,60,0.03)] transition-colors"
+                        >
+                          {/* Carbon bar */}
+                          <div className="flex-shrink-0 w-1 self-stretch rounded-full" style={{ backgroundColor: tierColor }} />
+
+                          {/* Merchant + name */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-zinc-100 font-mono text-[13px] font-medium truncate">
+                                {sub.name || sub.merchant_name}
+                              </span>
+                              <span className="text-[9px] font-mono uppercase tracking-widest border border-zinc-700/50 text-zinc-500 bg-zinc-800/40 px-1.5 py-0.5 flex-shrink-0">
+                                {sub.billing_cycle}
+                              </span>
+                              {isCancelled && (
+                                <span className="text-[9px] font-mono uppercase tracking-widest border border-[rgba(182,255,60,0.4)] text-[#d8ffb0] bg-[rgba(182,255,60,0.06)] px-1.5 py-0.5">
+                                  cancelled
+                                </span>
+                              )}
+                              {isCancelling && (
+                                <span className="text-[9px] font-mono uppercase tracking-widest border border-amber-700/50 text-amber-300 bg-amber-950/30 px-1.5 py-0.5">
+                                  cancelling…
+                                </span>
+                              )}
+                              {isFailed && (
+                                <span className="text-[9px] font-mono uppercase tracking-widest border border-rose-700/50 text-rose-300 bg-rose-950/30 px-1.5 py-0.5">
+                                  cancel failed
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[11px] text-zinc-500 font-mono mt-0.5">
+                              {sub.merchant_name}
+                              {sub.next_billing_date && (
+                                <> · next charge {new Date(sub.next_billing_date).toLocaleDateString()}</>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Price */}
+                          <div className="text-right flex-shrink-0">
+                            <div className="text-zinc-200 font-mono text-[13px]">
+                              ${parseFloat(sub.price_total).toFixed(2)}
+                              <span className="text-zinc-600 text-[10px] ml-1">
+                                /{sub.billing_cycle.toLowerCase().replace('ly', '')}
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-zinc-500 font-mono">
+                              ${sub.annual_usd.toFixed(0)}/yr
+                            </div>
+                          </div>
+
+                          {/* Carbon */}
+                          <div className="text-right flex-shrink-0 w-24">
+                            <div
+                              className="font-mono text-[15px] font-bold"
+                              style={{ color: tierColor }}
+                            >
+                              {sub.kg_annual.toFixed(0)}
+                              <span className="text-[11px] font-normal ml-1">kg</span>
+                            </div>
+                            <div className="text-[10px] text-zinc-600 font-mono uppercase tracking-widest">
+                              CO₂e/yr
+                            </div>
+                          </div>
+
+                          {/* Cancel button */}
+                          <div className="flex-shrink-0">
+                            {sub.is_cancellable && !isCancelled && !isCancelling ? (
+                              <button
+                                onClick={() => cancelSub(sub.id)}
+                                className="btn-block btn-block-sm border-rose-800/50 text-rose-400 hover:border-rose-600 hover:text-rose-300"
+                                title="Cancel this subscription via Knot"
+                              >
+                                <XCircle size={10} />
+                                Cancel
+                              </button>
+                            ) : (
+                              <div className="w-[68px]" />
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+
+              <div className="mt-3 text-[10px] font-mono uppercase tracking-widest text-zinc-600 px-1">
+                Carbon estimates use spend-based LCA factors (kg CO₂e/annual $) per merchant category.
+                Cancellation is executed live via Knot's SubscriptionManager API.
+              </div>
+            </>
+          )}
         </section>
       </main>
 

@@ -50,6 +50,16 @@ db.version(3).stores({
   settings:  'key'
 });
 
+// v4 adds the subscriptions store for Knot SubscriptionManager data.
+// Each row mirrors the enriched subscription object queued by the proxy,
+// with an added `kg_annual` carbon estimate and local `status` field.
+db.version(4).stores({
+  views:         '++id, url, occurred_at, category, merchant, purchased',
+  audit_log:     '++id, event_type, timestamp',
+  settings:      'key',
+  subscriptions: 'id, merchant_name, status, synced_at'
+});
+
 /**
  * Append a product view to the local history.
  * @param {Object} input
@@ -160,6 +170,21 @@ export async function markPurchased(viewId, knotTransactionId) {
 }
 
 /**
+ * Return the single most recently viewed unpurchased row for a given merchant.
+ * @param {string} merchant
+ * @returns {Promise<ViewRow|null>}
+ */
+export async function getMostRecentUnpurchasedView(merchant) {
+  const rows = await db.views
+    .where('merchant').equals(merchant)
+    .filter((r) => !r.purchased)
+    .toArray();
+  if (rows.length === 0) return null;
+  rows.sort((a, b) => (b.occurred_at > a.occurred_at ? 1 : -1));
+  return rows[0];
+}
+
+/**
  * Read all view rows that match a merchant, amount window, and time window.
  * Used by the service worker to match Knot transactions to local browse history.
  * @param {{ merchant: string, amount_usd: number, occurred_at: string }} tx
@@ -167,7 +192,7 @@ export async function markPurchased(viewId, knotTransactionId) {
  */
 export async function findMatchingViews({ merchant, amount_usd, occurred_at }) {
   const txTime = Date.parse(occurred_at);
-  const WINDOW_MS = 4 * 60 * 60 * 1000; // ±4 hours
+  const WINDOW_MS = 2 * 60 * 60 * 1000; // ±2 hours
   const rows = await db.views
     .where('merchant').equals(merchant)
     .filter((row) => {
@@ -195,5 +220,48 @@ export async function resetAll() {
   await db.views.clear();
   await db.audit_log.clear();
   await db.settings.clear();
+  await db.subscriptions.clear();
   await logEvent('reset_all', {});
+}
+
+/**
+ * Upsert a subscription row received from the proxy.
+ * @param {Object} sub  Enriched subscription object from the proxy queue.
+ */
+export async function upsertSubscription(sub) {
+  const synced_at = new Date().toISOString();
+  await db.subscriptions.put({
+    id: String(sub.id),
+    name: sub.name ?? '',
+    merchant_id: sub.merchant_id ?? 0,
+    merchant_name: sub.merchant_name ?? '',
+    status: sub.status ?? 'ACTIVE',
+    billing_cycle: sub.billing_cycle ?? 'MONTHLY',
+    next_billing_date: sub.next_billing_date ?? null,
+    is_cancellable: !!sub.is_cancellable,
+    price_total: String(sub.price_total ?? '0'),
+    price_currency: sub.price_currency ?? 'USD',
+    annual_usd: Number(sub.annual_usd) || 0,
+    kg_annual: Number(sub.kg_annual) || 0,
+    synced_at
+  });
+  await logEvent('subscription_synced', { subscription_id: String(sub.id), merchant: sub.merchant_name });
+}
+
+/**
+ * Read all subscriptions, newest synced first.
+ * @returns {Promise<Array>}
+ */
+export async function getSubscriptions() {
+  return db.subscriptions.orderBy('synced_at').reverse().toArray();
+}
+
+/**
+ * Update a subscription's status after a cancellation result.
+ * @param {string} id
+ * @param {'CANCELLING' | 'CANCELLED' | 'CANCEL_FAILED'} status
+ */
+export async function updateSubscriptionStatus(id, status) {
+  await db.subscriptions.update(String(id), { status });
+  await logEvent('subscription_status_updated', { subscription_id: String(id), status });
 }

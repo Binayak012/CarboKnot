@@ -8,7 +8,7 @@
 // `purchased` is set on a subset of rows so the Confirmed-vs-Browsing filter
 // in section 04 is meaningful out of the box.
 
-import type { AuditEntry, ViewRow } from './types';
+import type { AuditEntry, ViewRow, SubscriptionRow } from './types';
 
 const now = Date.now();
 const DAY = 86400000;
@@ -1217,4 +1217,84 @@ export const SEED_AUDIT: AuditEntry[] = [
     timestamp: isoAgo(10, -3600000),
     details: { view_id: 's18', knot_transaction_id: 'kt_2408a14b' },
   },
+];
+
+const synced = new Date(now - DAY).toISOString();
+
+export const SEED_SUBSCRIPTIONS: SubscriptionRow[] = [
+  {
+    id: 'seed-sub-hellofresh',
+    name: 'HelloFresh Meal Kit — 2 people, 3 meals/wk',
+    merchant_id: 42,
+    merchant_name: 'HelloFresh',
+    status: 'ACTIVE',
+    billing_cycle: 'WEEKLY',
+    next_billing_date: new Date(now + 6 * DAY).toISOString(),
+    is_cancellable: true,
+    price_total: '59.94',
+    price_currency: 'USD',
+    annual_usd: 3116.88,
+    kg_annual: 431,
+    synced_at: synced
+  },
+  {
+    id: 'seed-sub-netflix',
+    name: 'Netflix Standard with ads',
+    merchant_id: 14,
+    merchant_name: 'Netflix',
+    status: 'ACTIVE',
+    billing_cycle: 'MONTHLY',
+    next_billing_date: new Date(now + 18 * DAY).toISOString(),
+    is_cancellable: true,
+    price_total: '15.49',
+    price_currency: 'USD',
+    annual_usd: 185.88,
+    kg_annual: 22,
+    synced_at: synced
+  },
+  {
+    id: 'seed-sub-spotify',
+    name: 'Spotify Premium Individual',
+    merchant_id: 13,
+    merchant_name: 'Spotify',
+    status: 'ACTIVE',
+    billing_cycle: 'MONTHLY',
+    next_billing_date: new Date(now + 9 * DAY).toISOString(),
+    is_cancellable: true,
+    price_total: '12.99',
+    price_currency: 'USD',
+    annual_usd: 155.88,
+    kg_annual: 12,
+    synced_at: synced
+  },
+  {
+    id: 'seed-sub-verizon',
+    name: 'Verizon Unlimited Plus',
+    merchant_id: 31,
+    merchant_name: 'Verizon',
+    status: 'ACTIVE',
+    billing_cycle: 'MONTHLY',
+    next_billing_date: new Date(now + 22 * DAY).toISOString(),
+    is_cancellable: false,
+    price_total: '80.00',
+    price_currency: 'USD',
+    annual_usd: 960,
+    kg_annual: 173,
+    synced_at: synced
+  },
+  {
+    id: 'seed-sub-dsc',
+    name: 'Dollar Shave Club — Executive razor',
+    merchant_id: 55,
+    merchant_name: 'Dollar Shave Club',
+    status: 'CANCELLED',
+    billing_cycle: 'MONTHLY',
+    next_billing_date: null,
+    is_cancellable: false,
+    price_total: '9.00',
+    price_currency: 'USD',
+    annual_usd: 108,
+    kg_annual: 49,
+    synced_at: synced
+  }
 ];

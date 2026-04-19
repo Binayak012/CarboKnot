@@ -46,3 +46,26 @@ export interface AuditEntry {
   timestamp: string;
   details?: Record<string, unknown>;
 }
+
+export type SubscriptionStatus =
+  | 'ACTIVE'
+  | 'CANCELLING'
+  | 'CANCELLED'
+  | 'CANCEL_FAILED'
+  | 'UNKNOWN';
+
+export interface SubscriptionRow {
+  id: string;
+  name: string;
+  merchant_id: number;
+  merchant_name: string;
+  status: SubscriptionStatus;
+  billing_cycle: string;
+  next_billing_date: string | null;
+  is_cancellable: boolean;
+  price_total: string;
+  price_currency: string;
+  annual_usd: number;
+  kg_annual: number;
+  synced_at: string;
+}
