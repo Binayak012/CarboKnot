@@ -21,7 +21,7 @@ CarboKnot is a privacy-first carbon footprint tracker for your shopping. The car
 - **🤖 AI-powered reasoning** — K2 Think V2 explains *why* a product has a high footprint and *why* the suggested alternative is greener, using chain-of-thought reasoning
 - **🌿 Greener alternatives** — Every purchase gets a lower-carbon swap suggestion
 - **⚡ One-click action** — Offset, swap via Knot's AgenticShopping, or cancel high-carbon subscriptions
-- **📊 Unified dashboard** — Orchid-powered UI shows your full footprint, category breakdown, and trends
+- **📊 Unified dashboard** — Interactive UI shows your full footprint, category breakdown, and trends
 
 ---
 
@@ -69,7 +69,7 @@ CarboKnot is a privacy-first carbon footprint tracker for your shopping. The car
 |---|---|
 | Language | TypeScript / JavaScript |
 | Package Manager | pnpm 10.33.0 (workspaces monorepo) |
-| Node Version | ≥ 20.0.0 |
+| Node Version |
 | Bundler | esbuild |
 | Browser Extension | `carboknot-extension` package |
 | Proxy / Middleware | `carboknot-proxy` package |
@@ -88,11 +88,6 @@ CarboKnot is a privacy-first carbon footprint tracker for your shopping. The car
 
 ## 🚀 Getting Started
 
-### Prerequisites
-
-- Node.js ≥ 20.0.0
-- pnpm 10.33.0 → `npm install -g pnpm@10.33.0`
-- API keys for: Knot, Climatiq, K2 Think V2, Gemini, Dedalus
 
 ### Installation
 
@@ -105,32 +100,6 @@ cd CarboKnot
 pnpm install
 ```
 
-
-### Development
-
-```bash
-# Run the browser extension in dev mode
-pnpm dev
-
-# Run the proxy server
-pnpm proxy
-
-# Build the extension
-pnpm build
-
-# Build and preview the web version
-pnpm build:web && pnpm preview:web
-```
-
-### Running Tests
-
-```bash
-# Test the on-device carbon engine
-pnpm test:engine
-
-# Test the full extension
-pnpm test:extension
-```
 
 ### Loading the Extension in Chrome
 
@@ -199,7 +168,7 @@ The average American generates **~16 tonnes of CO₂** per year, with a major sh
 
 ## 🔮 What's Next
 
-- Expand merchant coverage to all Knot-supported retailers beyond Amazon
+- Expand merchant coverage to all Knot-supported retailers
 - Product embedding-based alternative matching for more precise swap suggestions
 - Household/team mode for collective accountability
 - Monthly carbon budget setting with nudge alerts
