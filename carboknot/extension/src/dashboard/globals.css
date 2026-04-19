@@ -264,6 +264,29 @@
   }
 
   /* ------------------------------------------------------------
+     LOGO PLATE — soft halo behind the brand mark.
+     Default (dark theme): the logo image itself is dark on
+     transparent, so on a dark page it would vanish. We recolor it
+     to pure white via a brightness/invert filter and let a soft
+     acid-green glow ring sit behind it. No solid plate fill — the
+     white silhouette + lime halo reads as a luminous brand badge.
+     Light-theme overrides (solid vellum disc, original logo
+     colors) live in the [data-theme="light"] block further down.
+     ------------------------------------------------------------ */
+  .logo-plate {
+    background: transparent;
+    box-shadow:
+      0 0 22px -2px rgba(182, 255, 60, 0.35),
+      0 0 6px rgba(182, 255, 60, 0.45);
+    transition: background 200ms ease, box-shadow 200ms ease;
+  }
+  .logo-plate img {
+    /* recolor any dark logo pixels to crisp white in dark mode */
+    filter: brightness(0) invert(1)
+      drop-shadow(0 0 6px rgba(182, 255, 60, 0.55));
+  }
+
+  /* ------------------------------------------------------------
      BLOCKY BUTTONS
      ------------------------------------------------------------ */
   .btn-block {
@@ -648,6 +671,19 @@
   /* Hero CarboKnot wordmark sits on lime paper — flip to dark forest. */
   [data-theme="light"] [data-hero-wordmark] { color: #04140a !important; }
   [data-theme="light"] [data-hero-wordmark-accent] { color: #1f6b3f !important; }
+
+  /* Light theme: tone the logo plate down so it doesn't fight the lime. */
+  [data-theme="light"] [data-logo-plate] {
+    background: rgba(255, 255, 255, 0.32) !important;
+    box-shadow:
+      inset 0 0 0 1px rgba(8, 30, 12, 0.18),
+      0 8px 24px -10px rgba(8, 30, 12, 0.18) !important;
+  }
+  /* In light mode the original dark logo reads fine on the lime page;
+     skip the dark-mode invert filter. */
+  [data-theme="light"] [data-logo-plate] img {
+    filter: none !important;
+  }
 
   /* ----------------------------------------------------------
      LIGHT-THEME HERO CAROUSEL — single lime tile sitting on the
