@@ -7,7 +7,7 @@ A Chrome extension that shows you the carbon cost of anything you're about to bu
 
 ## 🏆 Built at HackPrinceton Spring 2026
 
-**Track:** Sustainability
+**Main Track:** Sustainability
 
 **Sponsors Utilized:** Knot API · K2 Think V2 · Google Gemini · Dedalus · Orchid
 
