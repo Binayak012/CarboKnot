@@ -1,7 +1,7 @@
 # 🌱 CarboKnot
 
 
-A Chrome extension that shows you the carbon cost of anything you're about to buy — calculated on your device, explained by AI, and connected to your full purchase history so you can actually do something about it. The carbon engine runs entirely inside your browser — your purchase data never leaves your device. It intercepts products before you buy, calculates their CO₂e footprint locally, surfaces greener alternatives powered by K2 Think V2 reasoning, and connects to your full purchase history via Knot's API to give you a unified picture of your shopping emissions.
+A Chrome extension that shows you the carbon cost of anything you're about to buy — calculated on your device, explained by AI, and connected to your full purchase history so you can actually do something about it. The carbon engine runs entirely inside your browser; your purchase data never leaves your device. It intercepts products before you buy, calculates their CO₂e footprint locally, surfaces greener alternatives powered by K2 Think V2 reasoning, and connects to your full purchase history via Knot's API to give you a unified picture of your shopping emissions.
 
 ---
 # Inspiration 🌍
@@ -79,7 +79,6 @@ Our team wanted to solve this visibility gap. If people could see the carbon imp
 | Package Manager | pnpm 10.33.0 (workspaces monorepo) |
 | Bundler | esbuild |
 | Browser Extension | `carboknot-extension` package |
-| Proxy / Middleware | `carboknot-proxy` package |
 | Carbon Engine | On-device TypeScript module (unit tested) |
 | Transaction Data | Knot TransactionLink (webhooks) |
 | Subscription Data | Knot SubManager |
@@ -185,7 +184,7 @@ The average American generates **~16 tonnes of CO₂** per year, with a major sh
 
 Built with 💚 at HackPrinceton Spring 2026.
 
-Team Members (in alphabetical order): Anshuraj Sedai, Binayak Subedi, Pranish Uprety, Rahul Mandal
+Team Members: Anshuraj Sedai, Binayak Subedi, Pranish Uprety, Rahul Mandal
 <!-- Add team member names and GitHub handles here -->
 
 ---
