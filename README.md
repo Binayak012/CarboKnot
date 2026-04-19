@@ -1,7 +1,5 @@
 # 🌱 CarboKnot
 
-> **Zero-trust browser agent for on-device carbon accounting at the point of purchase.**
-
 CarboKnot is a privacy-first carbon footprint tracker for your shopping. The carbon engine runs entirely inside your browser — your purchase data never leaves your device. It intercepts products before you buy, calculates their CO₂e footprint locally, surfaces greener alternatives powered by K2 Think V2 reasoning, and connects to your full purchase history via Knot's API to give you a unified picture of your shopping emissions.
 
 ---
