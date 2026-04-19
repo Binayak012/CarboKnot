@@ -262,7 +262,7 @@ All application logic, the on-device carbon engine, the monorepo architecture, a
 |---|---|---|
 | Knot API | TransactionLink, SubManager, AgenticShopping | [knotapi.com](https://knotapi.com) |
 | Climatiq | Carbon emissions data | [climatiq.io](https://climatiq.io) |
-| K2 Think V2 / LLM360 | Chain-of-thought carbon reasoning | [llm360.ai](https://huggingface.co/LLM360/K2-Think-V2) |
+| K2 Think V2 / LLM360 | Chain-of-thought carbon reasoning | [huggingface.co/LLM360/K2-Think-V2](https://huggingface.co/LLM360/K2-Think-V2) |
 | Google Gemini | Categorization and generative AI | [ai.google.dev](https://ai.google.dev) |
 | Dedalus | Proxy hosting | [dedaluslabs.ai](https://dedaluslabs.ai) |
 | Orchid | Dashboard UI | [orchid.com](https://www.orchids.app/) |
