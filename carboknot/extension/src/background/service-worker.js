@@ -25,10 +25,9 @@ import {
 import category_map from '../engine/category_map.json' with { type: 'json' };
 
 // Keep this in sync with carboknot/extension/manifest.config.ts host_permissions.
-// Point at http://localhost:8787 for local dev, or your Dedalus Machine's
-// public URL in production. Render is no longer used — the proxy and the
-// factor warmer are co-located on a single Machine (see dedalus-machine/README.md).
-export const PROXY_ORIGIN = 'http://localhost:8787';
+// Set VITE_PROXY_ORIGIN in .env to point at your Vercel deployment or
+// Dedalus Machine URL in production. Defaults to localhost:8787 for local dev.
+export const PROXY_ORIGIN = import.meta.env.VITE_PROXY_ORIGIN || 'http://localhost:8787';
 
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
 const GEMINI_MODEL = 'gemini-2.5-flash';
@@ -200,17 +199,27 @@ async function fetchGeminiAlternativesDirect({ title, category, price, carbon_kg
     ? 'User is on Amazon — mix of energy-efficient new products and certified refurbished.'
     : 'User is shopping online — include refurbished, secondhand and sustainable brands.';
 
+  // Merchant pool: 7 destinations so alternatives span 5+ unique sites.
+  const merchantList =
+    'Back Market, eBay (refurbished/pre-owned), Amazon (renewed/certified), ' +
+    'ThredUp, Poshmark, Swappa, Walmart (renewed)';
+
   const userPrompt =
     `You are a sustainability expert. Return ONLY a raw JSON array (no markdown fences, no commentary).\n\n` +
     `Product: "${title}" | Category: ${category} | Price: $${priceNum} | Carbon: ${carbonNum.toFixed(1)} kg CO₂e\n` +
     `${siteCtx}\n\n` +
-    `List 5-6 specific lower-carbon alternatives. Each must be a real purchasable product.\n` +
+    `Suggest 6 specific lower-carbon alternatives. RULES:\n` +
+    `- Each MUST be a real, currently purchasable product (exact brand + model).\n` +
+    `- Refurbished/renewed/secondhand items are lower carbon because they cost less and avoid new manufacturing.\n` +
+    `- Spread across AT LEAST 5 different merchants from: ${merchantList}.\n` +
+    `- Do NOT repeat the same merchant more than twice.\n\n` +
     `Each JSON object must have ONLY these keys:\n` +
     `- name: exact brand + full model name (string)\n` +
-    `- why: one sentence on main emission stage avoided (string)\n` +
-    `- carbon_factor: fraction of original carbon, 0.15–0.85 (number, must be < 1.0)\n` +
-    `- search_query: best search terms to find this exact product (string)\n` +
-    `- type: one of refurbished, secondhand, efficient, durable (string)\n\n` +
+    `- why: 1-2 sentences explaining which emission stage (manufacturing, shipping, packaging, end-of-life) is reduced and why (string)\n` +
+    `- search_query: best search terms to find this exact product on the merchant (string)\n` +
+    `- type: one of refurbished, secondhand, efficient, durable (string)\n` +
+    `- preferred_merchant: one of backmarket, ebay, amazon, thredup, poshmark, swappa, walmart (string)\n` +
+    `- estimated_price_usd: realistic estimated price in USD on this merchant (number)\n\n` +
     `Output raw JSON array only, starting with [ and ending with ].`;
 
   const controller = new AbortController();
@@ -238,37 +247,132 @@ async function fetchGeminiAlternativesDirect({ title, category, price, carbon_kg
     }
     if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('no_json_array');
 
-    const site_host = String(site || '').toLowerCase();
-    const alternatives = parsed
-      .filter(a => a && typeof a.name === 'string' && typeof a.carbon_factor === 'number' && a.carbon_factor < 1)
-      .slice(0, 6)
-      .map(a => {
-        const cf = Math.max(0.15, Math.min(0.95, a.carbon_factor));
-        const sq = encodeURIComponent(a.search_query || a.name);
-        const isUsed = a.type === 'refurbished' || a.type === 'secondhand';
-        let url;
-        if (site_host.includes('ebay.com')) url = `https://www.ebay.com/sch/i.html?_nkw=${sq}${isUsed ? '&LH_ItemCondition=3000' : ''}`;
-        else if (site_host.includes('amazon.com')) url = `https://www.amazon.com/s?k=${sq}`;
-        else if (isUsed) url = `https://www.backmarket.com/en-us/search?q=${sq}`;
-        else url = `https://www.google.com/search?q=${sq}+buy`;
-        const merchant = isUsed ? (site_host.includes('ebay') ? 'eBay Pre-owned' : 'Back Market') : a.type === 'durable' ? 'Brand Direct' : 'Online Retailer';
-        const priceEst = isUsed ? priceNum * 0.55 : priceNum * 0.9;
-        return {
-          name: String(a.name).slice(0, 120), merchant,
-          price_usd: Math.round(priceEst),
-          carbon_kg: carbonNum * cf,
-          carbon_saved_kg: carbonNum - carbonNum * cf,
-          carbon_factor: cf, url,
-          rationale: String(a.why || '').slice(0, 300),
-          type: a.type || 'efficient'
-        };
-      });
+    // Carbon comes ONLY from Climatiq — no carbon_factor needed from Gemini.
+    // Filter on name + type only.
+    const mapping = category_map[category] || category_map.general;
+    const validateCarbon = async (altPrice) => {
+      try {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 3000);
+        const r = await fetch(`${PROXY_ORIGIN}/api/climatiq`, {
+          method: 'POST',
+          signal: ctrl.signal,
+          headers: { 'content-type': 'application/json', accept: 'application/json' },
+          body: JSON.stringify({
+            classification_code: mapping.code,
+            money: altPrice,
+            money_unit: 'usd'
+          })
+        });
+        clearTimeout(t);
+        if (!r.ok) return null;
+        const d = await r.json();
+        return typeof d?.co2e === 'number' ? d.co2e : null;
+      } catch { return null; }
+    };
 
-    if (alternatives.length === 0) throw new Error('no_valid_alternatives');
-    _altCache.set(cacheKey, { ts: Date.now(), data: alternatives });
-    return alternatives;
+    const alternatives = parsed
+      .filter(a => a && typeof a.name === 'string')
+      .slice(0, 6);
+
+    // Build alternatives with merchant-specific URLs across 7 sites.
+    // Carbon = ALWAYS Climatiq spend-based (proportional to price).
+    const results = await Promise.all(alternatives.map(async (a) => {
+      const sq = encodeURIComponent(a.search_query || a.name);
+      const isUsed = a.type === 'refurbished' || a.type === 'secondhand';
+      const merchant = String(a.preferred_merchant || '').toLowerCase().trim();
+
+      // Estimated price: prefer Gemini's estimate, fall back to ratio.
+      const priceEst = (typeof a.estimated_price_usd === 'number' && a.estimated_price_usd > 0)
+        ? Math.round(a.estimated_price_usd)
+        : Math.round(isUsed ? priceNum * 0.55 : priceNum * 0.9);
+
+      // Build URL for 7 merchants.
+      const { url, merchantLabel } = buildMerchantUrl(merchant, sq, isUsed, a.type);
+
+      // Carbon via Climatiq — same ISIC category, alternative's price.
+      // Climatiq spend-based factors are proportional to price, so a $180
+      // refurbished item in the same category always has less carbon than
+      // the $350 original. Fallback: price-proportional from original.
+      const climatiqCo2e = await validateCarbon(priceEst);
+      const priceRatio = priceNum > 0 ? priceEst / priceNum : 0.5;
+      const altCarbon = climatiqCo2e != null ? climatiqCo2e : carbonNum * priceRatio;
+      const carbonSource = climatiqCo2e != null ? 'climatiq' : 'price_proportional';
+
+      return {
+        name: String(a.name).slice(0, 120),
+        merchant: merchantLabel,
+        price_usd: priceEst,
+        carbon_kg: altCarbon,
+        carbon_saved_kg: carbonNum - altCarbon,
+        url,
+        rationale: String(a.why || '').slice(0, 400),
+        type: a.type || 'efficient',
+        carbon_source: carbonSource
+      };
+    }));
+
+    // Only keep alternatives that actually save carbon.
+    const valid = results.filter(a => a.carbon_saved_kg > 0);
+    if (valid.length === 0) throw new Error('no_valid_alternatives');
+
+    _altCache.set(cacheKey, { ts: Date.now(), data: valid });
+    return valid;
   } finally {
     clearTimeout(timer);
+  }
+}
+
+// 7 merchant URL builders — gives alternatives from 5+ unique sites.
+function buildMerchantUrl(merchant, searchQuery, isUsed, type) {
+  switch (merchant) {
+    case 'ebay':
+      return {
+        url: `https://www.ebay.com/sch/i.html?_nkw=${searchQuery}${isUsed ? '&LH_ItemCondition=3000' : ''}`,
+        merchantLabel: isUsed ? 'eBay Pre-owned' : 'eBay'
+      };
+    case 'amazon':
+      return {
+        url: `https://www.amazon.com/s?k=${searchQuery}${isUsed ? '+renewed' : ''}`,
+        merchantLabel: isUsed ? 'Amazon Renewed' : 'Amazon'
+      };
+    case 'backmarket':
+      return {
+        url: `https://www.backmarket.com/en-us/search?q=${searchQuery}`,
+        merchantLabel: 'Back Market'
+      };
+    case 'thredup':
+      return {
+        url: `https://www.thredup.com/products/search?search_terms=${searchQuery}`,
+        merchantLabel: 'ThredUp'
+      };
+    case 'poshmark':
+      return {
+        url: `https://poshmark.com/search?query=${searchQuery}&type=listings`,
+        merchantLabel: 'Poshmark'
+      };
+    case 'swappa':
+      return {
+        url: `https://swappa.com/search?q=${searchQuery}`,
+        merchantLabel: 'Swappa'
+      };
+    case 'walmart':
+      return {
+        url: `https://www.walmart.com/search?q=${searchQuery}${isUsed ? '+renewed' : ''}`,
+        merchantLabel: isUsed ? 'Walmart Renewed' : 'Walmart'
+      };
+    default:
+      // Fallback: route used items to Back Market, new to Google Shopping.
+      if (isUsed) {
+        return {
+          url: `https://www.backmarket.com/en-us/search?q=${searchQuery}`,
+          merchantLabel: 'Back Market'
+        };
+      }
+      return {
+        url: `https://www.google.com/search?q=${searchQuery}+buy&tbm=shop`,
+        merchantLabel: type === 'durable' ? 'Brand Direct' : 'Google Shopping'
+      };
   }
 }
 

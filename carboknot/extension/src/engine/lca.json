@@ -23,6 +23,22 @@
     "uncertainty_source": "price proxy; flagship vs mid-range not distinguishable from title alone",
     "assumptions": ["3-year useful life", "Air freight", "Retail packaging"]
   },
+  "tablets_displays": {
+    "kg_per_usd": 0.16,
+    "breakdown": { "manufacturing": 0.75, "shipping": 0.10, "packaging": 0.07, "end_of_life": 0.08 },
+    "confidence_multiplier": 0.20,
+    "citation": "Ecoinvent v3.9 — display / tablet aggregate (panel-manufacturing weighted)",
+    "uncertainty_source": "screen size and panel type (LCD vs OLED) unknown",
+    "assumptions": ["Mixed LCD/OLED", "Air freight from Asia", "5-year useful life"]
+  },
+  "gaming_consoles": {
+    "kg_per_usd": 0.14,
+    "breakdown": { "manufacturing": 0.72, "shipping": 0.12, "packaging": 0.08, "end_of_life": 0.08 },
+    "confidence_multiplier": 0.18,
+    "citation": "US EEIO 2020 — computer peripheral manufacturing + Sony/Microsoft EPDs",
+    "uncertainty_source": "model-specific silicon varies; console vs accessory mix",
+    "assumptions": ["Sea freight", "Standard retail packaging", "6-year useful life"]
+  },
   "apparel_tops": {
     "kg_per_usd": 0.25,
     "breakdown": { "manufacturing": 0.60, "shipping": 0.20, "packaging": 0.15, "end_of_life": 0.05 },
@@ -63,6 +79,14 @@
     "uncertainty_source": "broad category; material composition varies widely",
     "assumptions": ["Mixed materials", "Sea freight"]
   },
+  "beauty": {
+    "kg_per_usd": 0.18,
+    "breakdown": { "manufacturing": 0.55, "shipping": 0.15, "packaging": 0.22, "end_of_life": 0.08 },
+    "confidence_multiplier": 0.25,
+    "citation": "L'Oréal CDP 2022 — cosmetics sector average",
+    "uncertainty_source": "product formulation varies; packaging dominates uncertainty",
+    "assumptions": ["Liquid/cream formulation", "Plastic packaging", "Ground shipping"]
+  },
   "kitchenware": {
     "kg_per_usd": 0.20,
     "breakdown": { "manufacturing": 0.70, "shipping": 0.15, "packaging": 0.10, "end_of_life": 0.05 },
@@ -70,6 +94,86 @@
     "citation": "US EEIO 2020 — housewares",
     "uncertainty_source": "metal vs ceramic vs plastic not resolved from title",
     "assumptions": ["Mixed materials", "Sea freight"]
+  },
+  "food_packaged": {
+    "kg_per_usd": 0.48,
+    "breakdown": { "manufacturing": 0.45, "shipping": 0.25, "packaging": 0.20, "end_of_life": 0.10 },
+    "confidence_multiplier": 0.30,
+    "citation": "CEDA 2022 — snack food manufacturing",
+    "uncertainty_source": "ingredient mix and origin unknown; animal vs plant not resolved",
+    "assumptions": ["Mixed processed food", "Domestic distribution", "Retail packaging"]
+  },
+  "beverages": {
+    "kg_per_usd": 0.40,
+    "breakdown": { "manufacturing": 0.35, "shipping": 0.30, "packaging": 0.25, "end_of_life": 0.10 },
+    "confidence_multiplier": 0.28,
+    "citation": "CEDA 2022 — soft drink and ice manufacturing",
+    "uncertainty_source": "water weight dominates shipping; container type (can/bottle/carton) unknown",
+    "assumptions": ["Domestic production", "Mixed container types", "Refrigerated transport"]
+  },
+  "furniture": {
+    "kg_per_usd": 0.30,
+    "breakdown": { "manufacturing": 0.55, "shipping": 0.25, "packaging": 0.12, "end_of_life": 0.08 },
+    "confidence_multiplier": 0.30,
+    "citation": "US EEIO 2020 — wood and upholstered furniture manufacturing",
+    "uncertainty_source": "material (wood vs metal vs upholstered) unknown; weight varies greatly",
+    "assumptions": ["Mixed wood/metal frame", "Domestic shipping (heavy freight)", "15-year useful life"]
+  },
+  "appliances": {
+    "kg_per_usd": 0.20,
+    "breakdown": { "manufacturing": 0.65, "shipping": 0.15, "packaging": 0.10, "end_of_life": 0.10 },
+    "confidence_multiplier": 0.22,
+    "citation": "US EEIO 2020 — household appliance manufacturing",
+    "uncertainty_source": "energy class and motor type unknown; size range varies",
+    "assumptions": ["Standard efficiency", "Sea freight", "10-year useful life"]
+  },
+  "sports_outdoor": {
+    "kg_per_usd": 0.18,
+    "breakdown": { "manufacturing": 0.60, "shipping": 0.20, "packaging": 0.12, "end_of_life": 0.08 },
+    "confidence_multiplier": 0.28,
+    "citation": "US EEIO 2020 — sporting goods manufacturing",
+    "uncertainty_source": "material mix (carbon fibre vs plastic vs textile) unknown",
+    "assumptions": ["Mixed synthetic materials", "Sea freight", "5-year useful life"]
+  },
+  "pet_supplies": {
+    "kg_per_usd": 0.22,
+    "breakdown": { "manufacturing": 0.50, "shipping": 0.22, "packaging": 0.18, "end_of_life": 0.10 },
+    "confidence_multiplier": 0.30,
+    "citation": "US EEIO 2020 — pet food + animal care products combined",
+    "uncertainty_source": "food vs accessory not distinguished; ingredient origin unknown",
+    "assumptions": ["Mixed pet products", "Domestic distribution", "Standard retail packaging"]
+  },
+  "baby": {
+    "kg_per_usd": 0.20,
+    "breakdown": { "manufacturing": 0.55, "shipping": 0.20, "packaging": 0.15, "end_of_life": 0.10 },
+    "confidence_multiplier": 0.25,
+    "citation": "US EEIO 2020 — personal care / infant product manufacturing",
+    "uncertainty_source": "product type varies widely (diapers vs strollers vs clothing)",
+    "assumptions": ["Mixed materials", "Domestic shipping", "Short useful life"]
+  },
+  "tools_hardware": {
+    "kg_per_usd": 0.25,
+    "breakdown": { "manufacturing": 0.70, "shipping": 0.15, "packaging": 0.08, "end_of_life": 0.07 },
+    "confidence_multiplier": 0.22,
+    "citation": "US EEIO 2020 — hand tool + power tool manufacturing averaged",
+    "uncertainty_source": "manual vs power tool not resolved; metal/plastic ratio unknown",
+    "assumptions": ["Mixed steel/plastic", "Sea freight", "10-year useful life"]
+  },
+  "watches_jewelry": {
+    "kg_per_usd": 0.08,
+    "breakdown": { "manufacturing": 0.75, "shipping": 0.10, "packaging": 0.10, "end_of_life": 0.05 },
+    "confidence_multiplier": 0.35,
+    "citation": "US EEIO 2020 — jewelry and watch manufacturing",
+    "uncertainty_source": "precious metal vs fashion jewelry; price-per-kg extreme variation",
+    "assumptions": ["Mixed precious/base metals", "Air freight (high value density)", "Long useful life"]
+  },
+  "toys": {
+    "kg_per_usd": 0.22,
+    "breakdown": { "manufacturing": 0.65, "shipping": 0.18, "packaging": 0.12, "end_of_life": 0.05 },
+    "confidence_multiplier": 0.28,
+    "citation": "US EEIO 2020 — toy and game manufacturing",
+    "uncertainty_source": "plastic vs wood vs electronic toy unknown",
+    "assumptions": ["Mixed plastic/cardboard", "Sea freight", "3-year useful life"]
   },
   "general": {
     "kg_per_usd": 0.20,

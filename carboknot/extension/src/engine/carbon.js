@@ -115,17 +115,43 @@ export function listCategories() {
 // trailing \b) so plural forms still match ("Headphones", "Sneakers").
 // Keys MUST exist in both lca.json and engine/category_map.json.
 const CATEGORY_PATTERNS = [
-  { re: /\b(headphone|earbud|earphone|airpods|soundbar|speaker)/i,                category: 'audio_electronics' },
-  { re: /\b(macbook|laptop|notebook\s*pc|chromebook|thinkpad|ultrabook)/i,        category: 'laptops'           },
-  { re: /\b(iphone|galaxy|pixel|smartphone|cell\s*phone)/i,                       category: 'smartphones'       },
-  { re: /\b(t-?shirt|tee\b|hoodie|sweater|sweatshirt|blouse|jacket|coat|cardigan)/i, category: 'apparel_tops'   },
-  { re: /\b(jean|pant|trouser|chino|slack|legging|short|skirt)/i,                 category: 'apparel_bottoms'   },
-  { re: /\b(shoe|sneaker|boot|loafer|trainer|sandal|heel)/i,                      category: 'footwear'          },
-  { re: /\b(detergent|soap|cleaner|laundry|dish\s*pod|dishwasher|paper\s*towel)/i, category: 'home_goods'       },
-  { re: /\b(shampoo|conditioner|lotion|moisturizer|lipstick|mascara|perfume|cologne)/i, category: 'beauty'      },
-  { re: /\b(book|novel|paperback|hardcover|textbook)/i,                           category: 'books'             },
-  { re: /\b(snack|cereal|pasta|coffee|tea\b|granola|sauce|oats)/i,                category: 'food_packaged'     },
-  { re: /\b(toy|lego|puzzle|doll|action\s*figure|board\s*game)/i,                 category: 'toys'              }
+  // Electronics — specific before general
+  { re: /\b(headphone|earbud|earphone|airpods|soundbar|speaker|bluetooth\s*speaker)/i,  category: 'audio_electronics' },
+  { re: /\b(macbook|laptop|notebook\s*pc|chromebook|thinkpad|ultrabook)/i,              category: 'laptops'           },
+  { re: /\b(iphone|galaxy|pixel|smartphone|cell\s*phone|mobile\s*phone)/i,              category: 'smartphones'       },
+  { re: /\b(ipad|tablet|kindle|fire\s*hd|surface\s*pro|monitor|tv\b|television|display\b|smart\s*tv)/i, category: 'tablets_displays' },
+  { re: /\b(playstation|xbox|nintendo|switch\s*console|ps5|ps4|gaming\s*console)/i,     category: 'gaming_consoles'   },
+
+  // Apparel + footwear
+  { re: /\b(t-?shirt|tee\b|hoodie|sweater|sweatshirt|blouse|jacket|coat|cardigan|polo|tank\s*top|vest|fleece|parka|windbreaker|dress\b)/i, category: 'apparel_tops' },
+  { re: /\b(jean|pant|trouser|chino|slack|legging|short|skirt|jogger|cargo\s*pant)/i,  category: 'apparel_bottoms'   },
+  { re: /\b(shoe|sneaker|boot|loafer|trainer|sandal|heel|slipper|clog|mule)/i,         category: 'footwear'          },
+
+  // Home + kitchen
+  { re: /\b(detergent|soap|cleaner|laundry|dish\s*pod|dishwasher|paper\s*towel|sponge|bleach|wipe)/i, category: 'home_goods' },
+  { re: /\b(couch|sofa|desk|bed\b|mattress|chair|table|dresser|shelf|bookcase|nightstand|futon|recliner|ottoman)/i, category: 'furniture' },
+  { re: /\b(microwave|blender|vacuum|air\s*fryer|instant\s*pot|toaster|coffee\s*maker|mixer|oven\b|refrigerator|washer|dryer|dishwasher\b|air\s*purifier|fan\b|heater\b)/i, category: 'appliances' },
+  { re: /\b(pot\b|pan\b|skillet|spatula|knife\s*set|cutting\s*board|plate|bowl|mug|glass\s*set|utensil|bakeware|cookware)/i, category: 'kitchenware' },
+
+  // Personal care
+  { re: /\b(shampoo|conditioner|lotion|moisturizer|lipstick|mascara|perfume|cologne|sunscreen|foundation|serum|concealer|deodorant|body\s*wash)/i, category: 'beauty' },
+
+  // Media
+  { re: /\b(book|novel|paperback|hardcover|textbook|manga|comic\s*book|journal|planner)/i, category: 'books' },
+
+  // Food + drink
+  { re: /\b(snack|cereal|pasta|coffee|tea\b|granola|sauce|oats|chips|crackers|candy|chocolate|protein\s*bar|dried\s*fruit|nut\s*mix)/i, category: 'food_packaged' },
+  { re: /\b(water\b|soda|juice|energy\s*drink|seltzer|kombucha|wine\b|beer\b|milk\b|protein\s*shake)/i, category: 'beverages' },
+
+  // Sports + outdoor
+  { re: /\b(yoga\s*mat|dumbbell|kettlebell|resistance\s*band|treadmill|bike\b|bicycle|tent|sleeping\s*bag|hiking|backpack|camping|fishing|golf|basketball|soccer|football\b|baseball)/i, category: 'sports_outdoor' },
+
+  // Specialty
+  { re: /\b(dog\s*food|cat\s*food|pet\s*bed|leash|collar|litter|aquarium|hamster|bird\s*cage|pet\s*toy|chew\s*toy)/i, category: 'pet_supplies' },
+  { re: /\b(diaper|stroller|car\s*seat|baby\s*monitor|pacifier|bottle\s*warmer|crib|bassinet|baby\s*gate|high\s*chair|nursing)/i, category: 'baby' },
+  { re: /\b(drill|saw\b|wrench|hammer|screwdriver|plier|socket\s*set|tape\s*measure|level\b|sander|power\s*tool)/i, category: 'tools_hardware' },
+  { re: /\b(watch|necklace|bracelet|earring|ring\b|pendant|chain\b|cufflink|brooch|anklet)/i, category: 'watches_jewelry' },
+  { re: /\b(toy|lego|puzzle|doll|action\s*figure|board\s*game|nerf|playset|stuffed\s*animal|building\s*block)/i, category: 'toys' }
 ];
 
 /**
@@ -182,6 +208,10 @@ export async function computeCarbonWithClimatiq(title, price, category) {
     };
     const trace = {
       ...local.trace,
+      lookup: {
+        ...local.trace.lookup,
+        source: `Climatiq CEDA — ${remote.emission_factor_name || 'Spend-based estimate'}`
+      },
       confidence: {
         low: confidence.low,
         high: confidence.high,

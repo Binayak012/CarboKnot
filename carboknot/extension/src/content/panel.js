@@ -292,16 +292,16 @@ function renderAlternatives(alternatives, { originalKg, originalPrice, originalT
 }
 
 /**
- * Ask the service worker for Dedalus-authored reasoning about why an
- * alternative is lower carbon. Wrapped in a Promise so the caller can
- * await it. Never throws — resolves to `null` on any failure so we can
+ * Ask the service worker for LLM-authored reasoning about why an
+ * alternative is lower carbon. Cascade: K2 Think v2 → Gemini → fallback.
+ * Never throws — resolves to `null` on any failure so we can
  * fall back to the local rationale without try/catch at the call site.
  *
  * @param {{title: string, kg: number}} original
  * @param {{title: string, kg: number}} alternative
- * @returns {Promise<string | null>}
+ * @returns {Promise<{reasoning: string, source: string} | null>}
  */
-function askDedalus(original, alternative) {
+function askReasoning(original, alternative) {
   return new Promise((resolve) => {
     try {
       chrome.runtime.sendMessage(
@@ -309,7 +309,7 @@ function askDedalus(original, alternative) {
         (response) => {
           if (chrome.runtime.lastError) { resolve(null); return; }
           if (response && response.ok && typeof response.reasoning === 'string' && response.reasoning.trim()) {
-            resolve(response.reasoning.trim());
+            resolve({ reasoning: response.reasoning.trim(), source: response.source || 'unknown' });
           } else {
             resolve(null);
           }
@@ -360,7 +360,17 @@ function renderAlternativeCard(alt, { originalKg, originalPrice, originalTitle, 
     'carboknot-alt-delta ' +
     (carbonDelta < 0 ? 'carboknot-alt-delta-good' : carbonDelta > 0 ? 'carboknot-alt-delta-bad' : 'carboknot-alt-delta-flat');
   carbonDeltaEl.textContent = ` (${fmtSignedKg(carbonDelta)})`;
-  carbonLine.append(carbonVal, carbonDeltaEl);
+  const carbonSourceBadge = document.createElement('span');
+  carbonSourceBadge.className = 'carboknot-alt-carbon-source';
+  const src = alt.carbon_source || 'unknown';
+  if (src === 'climatiq') {
+    carbonSourceBadge.textContent = '✓ Climatiq';
+    carbonSourceBadge.classList.add('carboknot-alt-carbon-source-climatiq');
+  } else {
+    carbonSourceBadge.textContent = '~ Estimated';
+    carbonSourceBadge.classList.add('carboknot-alt-carbon-source-estimated');
+  }
+  carbonLine.append(carbonVal, carbonDeltaEl, carbonSourceBadge);
 
   const actions = document.createElement('div');
   actions.className = 'carboknot-alt-actions';
@@ -393,7 +403,7 @@ function renderAlternativeCard(alt, { originalKg, originalPrice, originalTitle, 
 
   drawer.append(rationaleText, tag);
 
-  // Fetch the Dedalus reasoning exactly once per card. Subsequent clicks
+  // Fetch the reasoning exactly once per card. Subsequent clicks
   // just toggle visibility, so we don't keep billing the reasoning proxy.
   let loaded = false;
 
@@ -416,22 +426,29 @@ function renderAlternativeCard(alt, { originalKg, originalPrice, originalTitle, 
     Promise.resolve().then(() => logEvent('explain_alternative_requested')).catch(() => {});
 
     whyBtn.disabled = true;
-    whyBtn.textContent = 'Asking Dedalus…';
+    whyBtn.textContent = 'Analyzing…';
     rationaleText.textContent = '';
     tag.textContent = '';
 
-    const reasoning = await askDedalus(
+    const result = await askReasoning(
       { title: originalTitle, kg: originalKg, category },
       { title: alt.name, kg: alt.carbon_kg, category }
     );
 
-    if (reasoning) {
-      rationaleText.textContent = reasoning;
-      tag.textContent = 'via Dedalus GPT-5';
+    if (result) {
+      rationaleText.textContent = result.reasoning;
+      // Official source labels — no internal/cached names.
+      const sourceLabels = {
+        k2_think:    'via K2 Think v2',
+        gemini:      'via Gemini',
+        dedalus_llm: 'via Dedalus',
+        fallback:    'Local analysis'
+      };
+      tag.textContent = sourceLabels[result.source] || `via ${result.source}`;
       Promise.resolve().then(() => logEvent('explain_alternative_remote_success')).catch(() => {});
     } else {
       rationaleText.textContent = String(alt.rationale || '');
-      tag.textContent = 'Local reasoning';
+      tag.textContent = 'Local analysis';
       Promise.resolve().then(() => logEvent('explain_alternative_fallback')).catch(() => {});
     }
 

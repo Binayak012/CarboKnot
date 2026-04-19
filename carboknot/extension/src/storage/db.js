@@ -27,6 +27,14 @@ import Dexie from 'dexie';
  *  @property {Object} [details]
  */
 
+/** @typedef {Object} CacheRow
+ *  @property {string} key                category::bucket key
+ *  @property {number} co2e_kg
+ *  @property {string} emission_factor_id
+ *  @property {string} [emission_factor_name]
+ *  @property {string} cached_at          ISO-8601
+ */
+
 export const db = new Dexie('carboknot');
 
 db.version(1).stores({
@@ -58,6 +66,16 @@ db.version(4).stores({
   audit_log:     '++id, event_type, timestamp',
   settings:      'key',
   subscriptions: 'id, merchant_name, status, synced_at'
+});
+
+// v5 adds a Climatiq estimate cache used by the service worker for
+// <category, price-bucket> cache-first lookups.
+db.version(5).stores({
+  views:          '++id, url, occurred_at, category, merchant, purchased',
+  audit_log:      '++id, event_type, timestamp',
+  settings:       'key',
+  subscriptions:  'id, merchant_name, status, synced_at',
+  climatiq_cache: 'key, cached_at'
 });
 
 /**
@@ -157,6 +175,55 @@ export async function putSetting(key, value) {
 }
 
 /**
+ * Read one Climatiq cache row by cache key.
+ * @param {string} key
+ * @returns {Promise<CacheRow|undefined>}
+ */
+export async function getCacheEntry(key) {
+  return db.climatiq_cache.get(String(key));
+}
+
+/**
+ * Upsert one Climatiq cache row.
+ * @param {CacheRow} entry
+ * @returns {Promise<string>}
+ */
+export async function putCacheEntry(entry) {
+  if (!entry || typeof entry.key !== 'string') {
+    throw new Error('invalid_cache_entry');
+  }
+  await db.climatiq_cache.put({
+    key: entry.key,
+    co2e_kg: Number(entry.co2e_kg) || 0,
+    emission_factor_id: String(entry.emission_factor_id || ''),
+    emission_factor_name: entry.emission_factor_name || undefined,
+    cached_at: entry.cached_at || new Date().toISOString()
+  });
+  return entry.key;
+}
+
+/**
+ * Bulk upsert Climatiq cache rows.
+ * @param {CacheRow[]} entries
+ * @returns {Promise<number>} number of rows written
+ */
+export async function bulkPutCacheEntries(entries) {
+  if (!Array.isArray(entries) || entries.length === 0) return 0;
+  const rows = entries
+    .filter((e) => e && typeof e.key === 'string' && e.emission_factor_id)
+    .map((e) => ({
+      key: e.key,
+      co2e_kg: Number(e.co2e_kg) || 0,
+      emission_factor_id: String(e.emission_factor_id),
+      emission_factor_name: e.emission_factor_name || undefined,
+      cached_at: e.cached_at || new Date().toISOString()
+    }));
+  if (rows.length === 0) return 0;
+  await db.climatiq_cache.bulkPut(rows);
+  return rows.length;
+}
+
+/**
  * Mark a view row as a confirmed purchase from a Knot transaction webhook.
  * @param {number} viewId
  * @param {string} knotTransactionId
@@ -221,6 +288,7 @@ export async function resetAll() {
   await db.audit_log.clear();
   await db.settings.clear();
   await db.subscriptions.clear();
+  await db.climatiq_cache.clear();
   await logEvent('reset_all', {});
 }
 

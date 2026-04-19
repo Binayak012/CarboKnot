@@ -72,6 +72,11 @@ const REASON_RATE_LIMIT_PER_MIN = Number(process.env.REASON_RATE_LIMIT_PER_MIN) 
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const K2_API_KEY = process.env.K2_API_KEY || '';
+const K2_API_ENDPOINT =
+  process.env.K2_API_ENDPOINT || 'https://api.k2think.ai/v1/chat/completions';
+const K2_MODEL = process.env.K2_MODEL || 'MBZUAI-IFM/K2-Think-v2';
+const K2_TIMEOUT_MS = 12000;
 const CORPUS_DB_PATH = process.env.CORPUS_DB_PATH || resolve(__dirname, 'data', 'corpus.db');
 
 const REASON_TIMEOUT_MS = 4000;
@@ -140,13 +145,24 @@ const CATEGORY_TO_CODE = {
   audio_electronics: '26',
   laptops:           '26',
   smartphones:       '26',
+  tablets_displays:  '26',
+  gaming_consoles:   '26',
   apparel_tops:      '14',
   apparel_bottoms:   '14',
   footwear:          '15',
   home_goods:        '20',
   beauty:            '20',
+  kitchenware:       '20',
   books:             '18',
   food_packaged:     '10',
+  beverages:         '10',
+  furniture:         '31',
+  appliances:        '27',
+  sports_outdoor:    '32_sport',
+  pet_supplies:      '10',
+  baby:              '32',
+  tools_hardware:    '25',
+  watches_jewelry:   '32',
   toys:              '32',
   general:           '32'
 };
@@ -183,8 +199,12 @@ const CLIMATIQ_ACTIVITY_IDS = {
   '15': 'consumer_goods-type_leather_and_related_product_manufacturing',
   '18': 'paper_products-type_book_publishers',
   '20': 'chemicals-type_soap_and_cleaning_compound_manufacturing',
+  '25': 'machinery-type_machine_tool_manufacturing',
   '26': 'electronics-type_electronic_computer',
+  '27': 'electrical_equipment-type_small_electrical_appliances',
+  '31': 'consumer_goods-type_institutional_furniture',
   '32': 'consumer_goods-type_doll_toy_and_game_manufacturing',
+  '32_sport': 'consumer_goods-type_sporting_athletic_goods',
   _default: 'consumer_goods-type_doll_toy_and_game_manufacturing'
 };
 const CLIMATIQ_DEFAULT_REGION = 'US';
@@ -239,6 +259,7 @@ const server = createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`[Carboknot proxy] listening on :${PORT}`);
+  console.log(`[Carboknot proxy] k2 key: ${K2_API_KEY ? 'set' : 'MISSING'}`);
   console.log(`[Carboknot proxy] dedalus key: ${DEDALUS_API_KEY ? 'set' : 'MISSING'}`);
   console.log(`[Carboknot proxy] climatiq key: ${CLIMATIQ_API_KEY ? 'set' : 'MISSING'}`);
   console.log(`[Carboknot proxy] CORS origins: ${ALLOWED_ORIGINS.join(', ') || '(none set)'}`);
@@ -372,7 +393,31 @@ async function handleReason(req, res) {
   const fallback = { rationale: localRationale(original, alternative), source: 'fallback' };
   const prompt = buildReasonPrompt(original, alternative);
 
-  // 1. Try Gemini (key in URL query param, not Authorization header)
+  // 1. Try K2 Think (deep reasoning LLM — best for LCA analysis)
+  if (K2_API_KEY) {
+    try {
+      const k2 = await fetchWithTimeout(K2_API_ENDPOINT, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${K2_API_KEY}` },
+        body: JSON.stringify({
+          model: K2_MODEL,
+          messages: [{ role: 'system', content: prompt.system }, { role: 'user', content: prompt.user }],
+          max_tokens: 250,
+          temperature: 0.3
+        })
+      }, K2_TIMEOUT_MS);
+      let rationale = k2?.choices?.[0]?.message?.content?.trim() || '';
+      // K2-Think emits chain-of-thought in <think>...</think> tags.
+      // Strip the thinking block to get only the clean answer.
+      rationale = rationale.replace(/^[\s\S]*<\/think>\s*/i, '').trim();
+      if (!rationale) throw new Error('empty_k2_response');
+      return json(res, 200, { rationale, source: 'k2_think' });
+    } catch (err) {
+      console.warn('[proxy] K2 Think fallback:', err?.name || 'error', err?.message || '');
+    }
+  }
+
+  // 2. Try Gemini (key in URL query param, not Authorization header)
   if (GEMINI_API_KEY) {
     try {
       const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
@@ -393,7 +438,7 @@ async function handleReason(req, res) {
     }
   }
 
-  // 2. Try Dedalus LLM
+  // 3. Try Dedalus LLM
   if (DEDALUS_API_KEY) {
     try {
       const llm = await fetchWithTimeout(DEDALUS_API_ENDPOINT, {
@@ -550,17 +595,27 @@ async function handleAlternatives(req, res) {
     ? 'User is on Amazon — mix of energy-efficient new products and certified refurbished.'
     : 'User is shopping online — include refurbished, secondhand and sustainable brands.';
 
+  // Merchant pool: 7 destinations so alternatives span 5+ unique sites.
+  const merchantList =
+    'Back Market, eBay (refurbished/pre-owned), Amazon (renewed/certified), ' +
+    'ThredUp, Poshmark, Swappa, Walmart (renewed)';
+
   const userPrompt =
     `You are a sustainability expert. Return ONLY a raw JSON array (no markdown fences, no commentary).\n\n` +
     `Product: "${title}" | Category: ${category} | Price: $${priceNum} | Carbon: ${carbonNum.toFixed(1)} kg CO₂e\n` +
     `${siteCtx}\n\n` +
-    `List 5-6 specific lower-carbon alternatives. Each must be a real purchasable product. ` +
+    `Suggest 6 specific lower-carbon alternatives. RULES:\n` +
+    `- Each MUST be a real, currently purchasable product (exact brand + model).\n` +
+    `- Refurbished/renewed/secondhand items are lower carbon because they cost less and avoid new manufacturing.\n` +
+    `- Spread across AT LEAST 5 different merchants from: ${merchantList}.\n` +
+    `- Do NOT repeat the same merchant more than twice.\n\n` +
     `Each JSON object must have ONLY these keys:\n` +
     `- name: exact brand + full model name (string)\n` +
-    `- why: one sentence on main emission stage avoided (string)\n` +
-    `- carbon_factor: fraction of original carbon, 0.15–0.85 (number, must be < 1.0)\n` +
-    `- search_query: best search terms to find this exact product (string)\n` +
-    `- type: one of refurbished, secondhand, efficient, durable (string)\n\n` +
+    `- why: 1-2 sentences explaining which emission stage (manufacturing, shipping, packaging, end-of-life) is reduced and why (string)\n` +
+    `- search_query: best search terms to find this exact product on the merchant (string)\n` +
+    `- type: one of refurbished, secondhand, efficient, durable (string)\n` +
+    `- preferred_merchant: one of backmarket, ebay, amazon, thredup, poshmark, swappa, walmart (string)\n` +
+    `- estimated_price_usd: realistic estimated price in USD on this merchant (number)\n\n` +
     `Output raw JSON array only, starting with [ and ending with ].`;
 
   try {
@@ -592,53 +647,116 @@ async function handleAlternatives(req, res) {
     }
     if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('no_valid_json_array');
 
-    const site_host = String(site || '').toLowerCase();
-    const alternatives = parsed
-      .filter(a => a && typeof a.name === 'string' && typeof a.carbon_factor === 'number' && a.carbon_factor < 1)
-      .slice(0, 6)
-      .map(a => {
-        const cf = Math.max(0.15, Math.min(0.95, a.carbon_factor));
-        const sq = encodeURIComponent(a.search_query || a.name);
-        const isUsed = a.type === 'refurbished' || a.type === 'secondhand';
+    // Carbon comes ONLY from Climatiq — no carbon_factor from Gemini.
+    const filteredAlts = parsed
+      .filter(a => a && typeof a.name === 'string')
+      .slice(0, 6);
 
-        let url;
-        if (site_host.includes('ebay.com')) {
-          url = `https://www.ebay.com/sch/i.html?_nkw=${sq}${isUsed ? '&LH_ItemCondition=3000' : ''}`;
-        } else if (site_host.includes('amazon.com')) {
-          url = `https://www.amazon.com/s?k=${sq}`;
-        } else if (isUsed) {
-          url = `https://www.backmarket.com/en-us/search?q=${sq}`;
-        } else {
-          url = `https://www.google.com/search?q=${sq}+buy`;
-        }
+    const code = CATEGORY_TO_CODE[category] || CATEGORY_TO_CODE.general || '32';
 
-        const merchant = isUsed
-          ? (site_host.includes('ebay') ? 'eBay Pre-owned' : 'Back Market')
-          : a.type === 'durable' ? 'Brand Direct'
-          : 'Online Retailer';
+    // Carbon = ALWAYS Climatiq spend-based (proportional to price).
+    const alternatives = await Promise.all(filteredAlts.map(async (a) => {
+      const sq = encodeURIComponent(a.search_query || a.name);
+      const isUsed = a.type === 'refurbished' || a.type === 'secondhand';
+      const merchant = String(a.preferred_merchant || '').toLowerCase().trim();
 
-        const priceEst = isUsed ? priceNum * 0.55 : priceNum * 0.9;
+      const priceEst = (typeof a.estimated_price_usd === 'number' && a.estimated_price_usd > 0)
+        ? Math.round(a.estimated_price_usd)
+        : Math.round(isUsed ? priceNum * 0.55 : priceNum * 0.9);
 
-        return {
-          name: String(a.name).slice(0, 120),
-          merchant,
-          price_usd: Math.round(priceEst),
-          carbon_kg: carbonNum * cf,
-          carbon_saved_kg: carbonNum - carbonNum * cf,
-          carbon_factor: cf,
-          url,
-          rationale: String(a.why || '').slice(0, 300),
-          type: a.type || 'efficient'
-        };
-      });
+      const { url, merchantLabel } = proxyBuildMerchantUrl(merchant, sq, isUsed, a.type);
 
-    if (alternatives.length === 0) throw new Error('no_valid_alternatives');
+      // Carbon via Climatiq — same ISIC category, alternative's price.
+      // Proportional to price: lower price → lower carbon.
+      // Fallback: price-proportional from original.
+      let altCarbon;
+      let carbonSource;
+      if (CLIMATIQ_API_KEY) {
+        try {
+          const est = await climatiqEstimate(code, priceEst);
+          altCarbon = est.co2e;
+          carbonSource = 'climatiq';
+        } catch { /* fall through to proportional */ }
+      }
+      if (altCarbon == null) {
+        const priceRatio = priceNum > 0 ? priceEst / priceNum : 0.5;
+        altCarbon = carbonNum * priceRatio;
+        carbonSource = 'price_proportional';
+      }
 
-    altCache.set(cacheKey, { ts: Date.now(), data: alternatives });
-    return json(res, 200, { alternatives, source: 'gemini' });
+      return {
+        name: String(a.name).slice(0, 120),
+        merchant: merchantLabel,
+        price_usd: priceEst,
+        carbon_kg: altCarbon,
+        carbon_saved_kg: carbonNum - altCarbon,
+        url,
+        rationale: String(a.why || '').slice(0, 400),
+        type: a.type || 'efficient',
+        carbon_source: carbonSource
+      };
+    }));
+
+    const valid = alternatives.filter(a => a.carbon_saved_kg > 0);
+    if (valid.length === 0) throw new Error('no_valid_alternatives');
+
+    altCache.set(cacheKey, { ts: Date.now(), data: valid });
+    return json(res, 200, { alternatives: valid, source: 'gemini' });
   } catch (err) {
     console.warn('[proxy] /api/alternatives:', err?.message || err);
     return json(res, 503, { error: 'alternatives_unavailable' });
+  }
+}
+
+// 7 merchant URL builders — proxy version (same logic as service worker).
+function proxyBuildMerchantUrl(merchant, searchQuery, isUsed, type) {
+  switch (merchant) {
+    case 'ebay':
+      return {
+        url: `https://www.ebay.com/sch/i.html?_nkw=${searchQuery}${isUsed ? '&LH_ItemCondition=3000' : ''}`,
+        merchantLabel: isUsed ? 'eBay Pre-owned' : 'eBay'
+      };
+    case 'amazon':
+      return {
+        url: `https://www.amazon.com/s?k=${searchQuery}${isUsed ? '+renewed' : ''}`,
+        merchantLabel: isUsed ? 'Amazon Renewed' : 'Amazon'
+      };
+    case 'backmarket':
+      return {
+        url: `https://www.backmarket.com/en-us/search?q=${searchQuery}`,
+        merchantLabel: 'Back Market'
+      };
+    case 'thredup':
+      return {
+        url: `https://www.thredup.com/products/search?search_terms=${searchQuery}`,
+        merchantLabel: 'ThredUp'
+      };
+    case 'poshmark':
+      return {
+        url: `https://poshmark.com/search?query=${searchQuery}&type=listings`,
+        merchantLabel: 'Poshmark'
+      };
+    case 'swappa':
+      return {
+        url: `https://swappa.com/search?q=${searchQuery}`,
+        merchantLabel: 'Swappa'
+      };
+    case 'walmart':
+      return {
+        url: `https://www.walmart.com/search?q=${searchQuery}${isUsed ? '+renewed' : ''}`,
+        merchantLabel: isUsed ? 'Walmart Renewed' : 'Walmart'
+      };
+    default:
+      if (isUsed) {
+        return {
+          url: `https://www.backmarket.com/en-us/search?q=${searchQuery}`,
+          merchantLabel: 'Back Market'
+        };
+      }
+      return {
+        url: `https://www.google.com/search?q=${searchQuery}+buy&tbm=shop`,
+        merchantLabel: type === 'durable' ? 'Brand Direct' : 'Google Shopping'
+      };
   }
 }
 
