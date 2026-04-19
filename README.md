@@ -246,7 +246,7 @@ The average American generates **~16 tonnes of CO₂** per year, with a major sh
 ## 👥 Team
 
 Built with 💚 at HackPrinceton Spring 2026.
-
+Team Members (in alphabetical order): Anshuraj Sedai, Binayak Subedi, Pranish Uprety, Rahul Mandal
 <!-- Add team member names and GitHub handles here -->
 
 ---
