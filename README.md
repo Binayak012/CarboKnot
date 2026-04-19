@@ -6,15 +6,15 @@ CarboKnot is a privacy-first carbon footprint tracker for your shopping. The car
 
 ## 🏆 Built at HackPrinceton Spring 2026
 
-**Track:** Environment & Sustainability
+**Track:** Sustainability
 
-**Sponsors Utilized:** Knot API · K2 Think V2 · Google Gemini · Dedalus · Orchid · Climatiq
+**Sponsors Utilized:** Knot API · K2 Think V2 · Google Gemini · Dedalus · Orchid
 
 ---
 
 ## ✨ Features
 
-- **🔒 On-device carbon engine** — Carbon calculations run locally inside the extension. No purchase data is sent to external servers without your consent (zero-trust architecture)
+- **🔒 On-device carbon engine** — Carbon calculations run locally inside the extension. No purchase data is sent to external servers without your consent
 - **🔴 Real-time carbon badges** — CO₂e estimates injected directly onto Amazon product pages before you click Buy Now
 - **📦 Full purchase history** — Knot's TransactionLink captures transactions across Amazon, Walmart, Target, and more via webhooks
 - **🔁 Subscription auditing** — Knot's SubManager surfaces the annual carbon cost of recurring services
@@ -29,7 +29,7 @@ CarboKnot is a privacy-first carbon footprint tracker for your shopping. The car
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                    BROWSER (Zero-Trust)                       │
+│                          BROWSER                              │
 │                                                               │
 │   ┌──────────────────────────────────────────────────────┐   │
 │   │              carboknot-extension                      │   │
@@ -105,26 +105,6 @@ cd CarboKnot
 pnpm install
 ```
 
-### Environment Variables
-
-Create a `.env` file in the root:
-
-```env
-# Knot API
-KNOT_API_KEY=your_knot_api_key
-KNOT_CLIENT_ID=your_client_id
-
-# Carbon APIs
-CLIMATIQ_API_KEY=your_climatiq_key
-
-# AI Models
-K2_API_KEY=your_k2_think_v2_key
-K2_BASE_URL=your_k2_endpoint
-GEMINI_API_KEY=your_gemini_key
-
-# Dedalus
-DEDALUS_API_KEY=your_dedalus_key
-```
 
 ### Development
 
@@ -166,12 +146,12 @@ pnpm test:extension
 
 ### The Full Loop
 
-1. **Browse** — Extension detects an Amazon product page and reads the product title and price from the DOM
+1. **Browse** — Extension detects an 21+ product pages and reads the product title and price from the DOM
 2. **Calculate (on-device)** — The local carbon engine estimates CO₂e from bundled category benchmarks — instant, no network call needed
 3. **Enrich (opt-in)** — The proxy calls Climatiq for a precise number and K2 Think V2 for a chain-of-thought explanation
 4. **Badge** — Carbon badge injected next to the price with footprint, confidence, and a greener swap suggestion
 5. **Buy** — Knot's webhook captures the completed transaction, saved to the unified database
-6. **Reflect** — Orchid dashboard shows cumulative footprint, category breakdown, and subscription emissions
+6. **Reflect** — Interactive dashboard shows cumulative footprint, category breakdown, and subscription emissions
 7. **Act** — One-click to offset, swap via Knot AgenticShopping, or cancel a subscription
 
 ### Carbon Pipeline
