@@ -116,7 +116,7 @@ const OFFSET_PROVIDERS: OffsetProvider[] = [
     approach: 'Mixed portfolio',
     certification: 'Verra · Gold Standard',
     pricePerTonneUsd: [10, 15],
-    url: 'https://www.cooleffect.org/buy-climate-solutions',
+    url: 'https://www.cooleffect.org/projects',
     iconKey: 'globe'
   },
   {
@@ -128,7 +128,7 @@ const OFFSET_PROVIDERS: OffsetProvider[] = [
     approach: 'Avoidance + removal',
     certification: 'Gold Standard',
     pricePerTonneUsd: [20, 30],
-    url: 'https://marketplace.goldstandard.org/collections/projects',
+    url: 'https://marketplace.goldstandard.org/collections/all',
     iconKey: 'trees'
   },
   {
@@ -140,7 +140,7 @@ const OFFSET_PROVIDERS: OffsetProvider[] = [
     approach: 'Engineered removal',
     certification: 'Puro.earth · ICVCM-aligned',
     pricePerTonneUsd: [180, 250],
-    url: 'https://un-do.com/buy-co2-removal',
+    url: 'https://www.un-do.com/',
     iconKey: 'mountain'
   },
   {
@@ -152,7 +152,7 @@ const OFFSET_PROVIDERS: OffsetProvider[] = [
     approach: 'Mixed portfolio',
     certification: 'Gold Standard · Plan Vivo',
     pricePerTonneUsd: [25, 40],
-    url: 'https://co2.myclimate.org/en/offset_further_emissions',
+    url: 'https://co2.myclimate.org/en/contribution_calculators/new?localized_currency=USD',
     iconKey: 'sprout'
   }
 ];
