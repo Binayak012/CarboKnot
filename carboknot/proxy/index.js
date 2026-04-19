@@ -582,7 +582,21 @@ function handleCancellationEvent(payload, status, res) {
   return json(res, 200, { ok: true });
 }
 
+function seedDemoSubs() {
+  const demos = [
+    { id: 'sub_hf_001', name: 'HelloFresh Weekly Box', merchant_id: 101, merchant_name: 'HelloFresh', status: 'ACTIVE', billing_cycle: 'weekly', next_billing_date: '2026-04-25', is_cancellable: true, price_total: '59.94', price_currency: 'USD', annual_usd: 3116.88, kg_annual: 431 },
+    { id: 'sub_nf_001', name: 'Netflix Standard', merchant_id: 102, merchant_name: 'Netflix', status: 'ACTIVE', billing_cycle: 'monthly', next_billing_date: '2026-05-01', is_cancellable: true, price_total: '15.49', price_currency: 'USD', annual_usd: 185.88, kg_annual: 22 },
+    { id: 'sub_sp_001', name: 'Spotify Premium', merchant_id: 103, merchant_name: 'Spotify', status: 'ACTIVE', billing_cycle: 'monthly', next_billing_date: '2026-05-03', is_cancellable: true, price_total: '12.99', price_currency: 'USD', annual_usd: 155.88, kg_annual: 12 },
+    { id: 'sub_vz_001', name: 'Verizon Unlimited Plus', merchant_id: 104, merchant_name: 'Verizon', status: 'ACTIVE', billing_cycle: 'monthly', next_billing_date: '2026-05-05', is_cancellable: false, price_total: '80.00', price_currency: 'USD', annual_usd: 960, kg_annual: 173 },
+    { id: 'sub_dsc_001', name: 'Dollar Shave Club', merchant_id: 105, merchant_name: 'Dollar Shave Club', status: 'CANCELLED', billing_cycle: 'monthly', next_billing_date: null, is_cancellable: false, price_total: '9.00', price_currency: 'USD', annual_usd: 108, kg_annual: 49 },
+  ];
+  for (const sub of demos) {
+    if (!subQueue.has(sub.id)) subQueue.set(sub.id, { ...sub, queued_at: Date.now() });
+  }
+}
+
 function handleKnotSubsPending(res) {
+  seedDemoSubs();
   const items = [];
   for (const [, entry] of subQueue) items.push(entry);
   return json(res, 200, { items });
@@ -638,18 +652,12 @@ async function handleKnotSubCancel(req, res, subId) {
   }
 }
 
-// Dev-only: seed the subscription queue with demo data for hackathon demos.
+// Dev-only: force-reseed subscriptions (useful to reset cancelled status).
 function handleDevSeedSubs(res) {
-  const demos = [
-    { id: 'sub_hf_001', name: 'HelloFresh Weekly Box', merchant_id: 101, merchant_name: 'HelloFresh', status: 'ACTIVE', billing_cycle: 'weekly', next_billing_date: '2026-04-25', is_cancellable: true, price_total: '59.94', price_currency: 'USD', annual_usd: 3116.88, kg_annual: 431 },
-    { id: 'sub_nf_001', name: 'Netflix Standard', merchant_id: 102, merchant_name: 'Netflix', status: 'ACTIVE', billing_cycle: 'monthly', next_billing_date: '2026-05-01', is_cancellable: true, price_total: '15.49', price_currency: 'USD', annual_usd: 185.88, kg_annual: 22 },
-    { id: 'sub_sp_001', name: 'Spotify Premium', merchant_id: 103, merchant_name: 'Spotify', status: 'ACTIVE', billing_cycle: 'monthly', next_billing_date: '2026-05-03', is_cancellable: true, price_total: '12.99', price_currency: 'USD', annual_usd: 155.88, kg_annual: 12 },
-    { id: 'sub_vz_001', name: 'Verizon Unlimited Plus', merchant_id: 104, merchant_name: 'Verizon', status: 'ACTIVE', billing_cycle: 'monthly', next_billing_date: '2026-05-05', is_cancellable: false, price_total: '80.00', price_currency: 'USD', annual_usd: 960, kg_annual: 173 },
-    { id: 'sub_dsc_001', name: 'Dollar Shave Club', merchant_id: 105, merchant_name: 'Dollar Shave Club', status: 'CANCELLED', billing_cycle: 'monthly', next_billing_date: null, is_cancellable: false, price_total: '9.00', price_currency: 'USD', annual_usd: 108, kg_annual: 49 },
-  ];
-  for (const sub of demos) subQueue.set(sub.id, { ...sub, queued_at: Date.now() });
-  console.log(`[proxy] /dev/seed-subs: injected ${demos.length} demo subscriptions`);
-  return json(res, 200, { ok: true, seeded: demos.length });
+  subQueue.clear();
+  seedDemoSubs();
+  console.log(`[proxy] /dev/seed-subs: reseeded ${subQueue.size} demo subscriptions`);
+  return json(res, 200, { ok: true, seeded: subQueue.size });
 }
 
 // Dev-only: seed the transaction queue with Amazon purchases at the given price.
