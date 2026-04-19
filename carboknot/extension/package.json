@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite build --watch --mode development",
     "build": "vite build",
+    "build:web": "vite build --config vite.web.config.ts",
     "preview": "vite preview",
+    "preview:web": "vite preview --config vite.web.config.ts",
     "test:engine": "node src/engine/carbon.test.mjs"
   },
   "dependencies": {

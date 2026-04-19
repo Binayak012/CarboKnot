@@ -11,6 +11,7 @@ yarn-error.log*
 
 # Build output
 dist/
+dist-web/
 build/
 out/
 .vite/
@@ -18,6 +19,7 @@ out/
 .next/
 .cache/
 *.tsbuildinfo
+.vercel/
 
 # Editor / OS
 .DS_Store
