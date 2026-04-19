@@ -1,7 +1,7 @@
 // Carboknot — eBay product-page adapter.
 // Identical flow to amazon.js with only the DOM selectors and URL pattern changed.
 
-import { computeCarbon } from '../engine/carbon.js';
+import { computeCarbonWithClimatiq } from '../engine/carbon.js';
 import { openPanel } from './panel.js';
 
 const PRODUCT_URL_RE = /\/itm\/\d+/;
@@ -101,13 +101,13 @@ async function run() {
   lastKey = key;
 
   const category = detectCategory(title);
-  const result = computeCarbon(title, price, category);
+  const result = await computeCarbonWithClimatiq(title, price, category);
 
   renderBadge(result, findAnchor());
 
   chrome.runtime.sendMessage({
     type: 'log_view',
-    data: {
+    payload: {
       url: location.href,
       title,
       price,

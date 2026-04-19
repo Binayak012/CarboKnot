@@ -6,7 +6,7 @@
 //   - The trace object returned by computeCarbon is passed through verbatim;
 //     db.js handles JSON serialisation for storage.
 
-import { computeCarbon } from '../engine/carbon.js';
+import { computeCarbonWithClimatiq } from '../engine/carbon.js';
 import { openPanel } from './panel.js';
 
 const PRODUCT_URL_RE = /\/dp\/[A-Z0-9]+/;
@@ -109,13 +109,13 @@ async function run() {
   lastKey = key;
 
   const category = detectCategory(title);
-  const result = computeCarbon(title, price, category);
+  const result = await computeCarbonWithClimatiq(title, price, category);
 
   renderBadge(result, findAnchor());
 
   chrome.runtime.sendMessage({
     type: 'log_view',
-    data: {
+    payload: {
       url: location.href,
       title,
       price,
