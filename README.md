@@ -159,9 +159,7 @@ CarboKnot/                        ← pnpm monorepo root
 
 ## 🌍 Impact
 
-The average American generates **~16 tonnes of CO₂** per year, with a major share from consumer goods. CarboKnot is the first tool to surface that cost at the exact moment of decision — without requiring you to trust a server with your purchase data.
-
-**Zero-trust means:** your shopping stays on your device. Carbon calculation is instant, local, and private by default. External enrichment is opt-in.
+The average American generates **~16 tonnes of CO₂** per year, with a major share from consumer goods. CarboKnot is a tool to surface that cost at the exact moment of decision — without requiring you to trust a server with your purchase data.
 
 ---
 
