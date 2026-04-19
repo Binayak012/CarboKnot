@@ -27,19 +27,16 @@ export function openPanel(result) {
   const category = result?.trace?.inputs?.category ?? result?.category ?? 'general';
   const originalPrice = Number(result?.trace?.inputs?.price) || 0;
   const originalTitle = String(result?.trace?.inputs?.title ?? '');
-  const alternatives = getAlternatives(category, result.kg_total);
+  const altCtx = { originalKg: result.kg_total, originalPrice, originalTitle, category };
+
+  const altPlaceholder = renderAlternativesLoading();
 
   panel.append(
     renderCloseButton(() => panel.remove()),
     renderHeader(result),
     renderStageBars(result.stages),
     renderAccordion(result.trace),
-    renderAlternatives(alternatives, {
-      originalKg: result.kg_total,
-      originalPrice,
-      originalTitle,
-      category
-    })
+    altPlaceholder
   );
 
   // Close with Escape for keyboard users.
@@ -52,6 +49,54 @@ export function openPanel(result) {
   document.addEventListener('keydown', onKey);
 
   document.body.appendChild(panel);
+
+  // Async: fetch Gemini alternatives; fall back to hardcoded on any failure.
+  fetchGeminiAlternatives({
+    title: originalTitle,
+    category,
+    price: originalPrice,
+    carbon_kg: result.kg_total,
+    site: window.location.hostname
+  }).then((alts) => {
+    if (!panel.isConnected) return;
+    altPlaceholder.replaceWith(renderAlternatives(alts, altCtx));
+  }).catch(() => {
+    if (!panel.isConnected) return;
+    altPlaceholder.replaceWith(renderAlternatives(getAlternatives(category, result.kg_total), altCtx));
+  });
+}
+
+function renderAlternativesLoading() {
+  const section = document.createElement('section');
+  section.className = 'carboknot-alt-section';
+  const header = document.createElement('div');
+  header.className = 'carboknot-alt-header';
+  header.textContent = 'Greener alternatives';
+  const loading = document.createElement('div');
+  loading.className = 'carboknot-alt-loading';
+  loading.textContent = 'Finding lower-carbon alternatives…';
+  section.append(header, loading);
+  return section;
+}
+
+function fetchGeminiAlternatives({ title, category, price, carbon_kg, site }) {
+  return new Promise((resolve, reject) => {
+    try {
+      chrome.runtime.sendMessage(
+        { type: 'fetch_alternatives', title, category, price, carbon_kg, site },
+        (response) => {
+          if (chrome.runtime.lastError) { reject(new Error(chrome.runtime.lastError.message)); return; }
+          if (response?.ok && Array.isArray(response.alternatives) && response.alternatives.length > 0) {
+            resolve(response.alternatives);
+          } else {
+            reject(new Error(response?.error || 'no_alternatives'));
+          }
+        }
+      );
+    } catch (e) {
+      reject(e);
+    }
+  });
 }
 
 function renderCloseButton(onClose) {

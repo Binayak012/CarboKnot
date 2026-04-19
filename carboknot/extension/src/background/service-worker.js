@@ -30,6 +30,10 @@ import category_map from '../engine/category_map.json' with { type: 'json' };
 // factor warmer are co-located on a single Machine (see dedalus-machine/README.md).
 export const PROXY_ORIGIN = 'http://localhost:8787';
 
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
+const GEMINI_MODEL = 'gemini-2.5-flash';
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+
 const CLIMATIQ_FETCH_TIMEOUT_MS = 4000;
 const REASON_FETCH_TIMEOUT_MS = 5000;
 
@@ -164,8 +168,109 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       );
     return true;
   }
+  if (msg?.type === 'fetch_alternatives') {
+    fetchGeminiAlternativesDirect(msg)
+      .then((alternatives) => sendResponse({ ok: true, alternatives, source: 'gemini' }))
+      .catch((err) => sendResponse({ ok: false, error: err?.message || String(err) }));
+    return true;
+  }
   return false;
 });
+
+function altPriceBucket(price) {
+  const size = price < 50 ? 5 : price < 200 ? 10 : price < 1000 ? 25 : 100;
+  return Math.round(price / size) * size;
+}
+
+const _altCache = new Map();
+const ALT_CACHE_TTL_MS = 10 * 60 * 1000;
+
+async function fetchGeminiAlternativesDirect({ title, category, price, carbon_kg, site }) {
+  if (!GEMINI_API_KEY) throw new Error('gemini_key_missing');
+
+  const priceNum = Number(price) || 0;
+  const carbonNum = Number(carbon_kg) || 0;
+  const cacheKey = `${category}::${altPriceBucket(priceNum)}`;
+  const cached = _altCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < ALT_CACHE_TTL_MS) return cached.data;
+
+  const siteCtx = String(site || '').includes('ebay')
+    ? 'User is on eBay — prioritise refurbished and pre-owned listings.'
+    : String(site || '').includes('amazon')
+    ? 'User is on Amazon — mix of energy-efficient new products and certified refurbished.'
+    : 'User is shopping online — include refurbished, secondhand and sustainable brands.';
+
+  const userPrompt =
+    `You are a sustainability expert. Return ONLY a raw JSON array (no markdown fences, no commentary).\n\n` +
+    `Product: "${title}" | Category: ${category} | Price: $${priceNum} | Carbon: ${carbonNum.toFixed(1)} kg CO₂e\n` +
+    `${siteCtx}\n\n` +
+    `List 5-6 specific lower-carbon alternatives. Each must be a real purchasable product.\n` +
+    `Each JSON object must have ONLY these keys:\n` +
+    `- name: exact brand + full model name (string)\n` +
+    `- why: one sentence on main emission stage avoided (string)\n` +
+    `- carbon_factor: fraction of original carbon, 0.15–0.85 (number, must be < 1.0)\n` +
+    `- search_query: best search terms to find this exact product (string)\n` +
+    `- type: one of refurbished, secondhand, efficient, durable (string)\n\n` +
+    `Output raw JSON array only, starting with [ and ending with ].`;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20_000);
+  try {
+    const res = await fetch(`${GEMINI_URL}?key=${GEMINI_API_KEY}`, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+        generationConfig: { maxOutputTokens: 8192, temperature: 0.5, thinkingConfig: { thinkingBudget: 0 } }
+      })
+    });
+    if (!res.ok) throw new Error(`gemini_http_${res.status}`);
+    const data = await res.json();
+    const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+    if (!raw) throw new Error('empty_gemini_response');
+
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch { /* try extraction below */ }
+    if (!Array.isArray(parsed)) {
+      const m = raw.match(/\[[\s\S]*\]/);
+      if (m) { try { parsed = JSON.parse(m[0]); } catch { /* noop */ } }
+    }
+    if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('no_json_array');
+
+    const site_host = String(site || '').toLowerCase();
+    const alternatives = parsed
+      .filter(a => a && typeof a.name === 'string' && typeof a.carbon_factor === 'number' && a.carbon_factor < 1)
+      .slice(0, 6)
+      .map(a => {
+        const cf = Math.max(0.15, Math.min(0.95, a.carbon_factor));
+        const sq = encodeURIComponent(a.search_query || a.name);
+        const isUsed = a.type === 'refurbished' || a.type === 'secondhand';
+        let url;
+        if (site_host.includes('ebay.com')) url = `https://www.ebay.com/sch/i.html?_nkw=${sq}${isUsed ? '&LH_ItemCondition=3000' : ''}`;
+        else if (site_host.includes('amazon.com')) url = `https://www.amazon.com/s?k=${sq}`;
+        else if (isUsed) url = `https://www.backmarket.com/en-us/search?q=${sq}`;
+        else url = `https://www.google.com/search?q=${sq}+buy`;
+        const merchant = isUsed ? (site_host.includes('ebay') ? 'eBay Pre-owned' : 'Back Market') : a.type === 'durable' ? 'Brand Direct' : 'Online Retailer';
+        const priceEst = isUsed ? priceNum * 0.55 : priceNum * 0.9;
+        return {
+          name: String(a.name).slice(0, 120), merchant,
+          price_usd: Math.round(priceEst),
+          carbon_kg: carbonNum * cf,
+          carbon_saved_kg: carbonNum - carbonNum * cf,
+          carbon_factor: cf, url,
+          rationale: String(a.why || '').slice(0, 300),
+          type: a.type || 'efficient'
+        };
+      });
+
+    if (alternatives.length === 0) throw new Error('no_valid_alternatives');
+    _altCache.set(cacheKey, { ts: Date.now(), data: alternatives });
+    return alternatives;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /**
  * Cache-first Climatiq estimate for a <category, price> pair.

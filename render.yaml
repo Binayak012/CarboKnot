@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: carboknot-proxy
+    runtime: node
+    region: oregon
+    plan: free
+    rootDir: carboknot/proxy
+    buildCommand: echo 'no build step'
+    startCommand: node --experimental-sqlite index.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DEDALUS_API_ENDPOINT
+        value: https://api.dedaluslabs.ai/v1/chat/completions
+      - key: DEDALUS_MODEL
+        value: openai/gpt-5
+      - key: REASON_RATE_LIMIT_PER_MIN
+        value: "10"
+      - key: DEDALUS_API_KEY
+        sync: false
+      - key: CLIMATIQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: WARMER_ENABLED
+        value: "false"
+      - key: PORT
+        value: "10000"

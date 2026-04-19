@@ -15,12 +15,8 @@ export default defineManifest({
   host_permissions: [
     'https://www.amazon.com/*',
     'https://www.ebay.com/*',
-    // Proxy origin for Climatiq estimates, Dedalus swarm cache hydrate,
-    // and reasoning. Keep in sync with PROXY_ORIGIN in
-    // src/background/service-worker.js. localhost is retained for dev;
-    // the Dedalus Machine line gets filled in once you have its public URL.
+    'https://generativelanguage.googleapis.com/*',
     'http://localhost:8787/*'
-    // 'https://<your-dedalus-machine>.dedalus.cloud/*',
   ],
   background: {
     service_worker: 'src/background/service-worker.js',
