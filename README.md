@@ -69,7 +69,6 @@ CarboKnot is a privacy-first carbon footprint tracker for your shopping. The car
 |---|---|
 | Language | TypeScript / JavaScript |
 | Package Manager | pnpm 10.33.0 (workspaces monorepo) |
-| Node Version |
 | Bundler | esbuild |
 | Browser Extension | `carboknot-extension` package |
 | Proxy / Middleware | `carboknot-proxy` package |
@@ -81,7 +80,7 @@ CarboKnot is a privacy-first carbon footprint tracker for your shopping. The car
 | Carbon Reasoning | K2 Think V2 (LLM360) |
 | Generic AI | Google Gemini API |
 | Dashboard UI | Orchid |
-| Hosting | Dedalus |
+| Hosting | Vercel |
 | MCP Integration | Knot Docs MCP (`docs.knotapi.com/mcp`) |
 
 ---
@@ -160,9 +159,7 @@ CarboKnot/                        ← pnpm monorepo root
 
 ## 🌍 Impact
 
-The average American generates **~16 tonnes of CO₂** per year, with a major share from consumer goods. CarboKnot is the first tool to surface that cost at the exact moment of decision — without requiring you to trust a server with your purchase data.
-
-**Zero-trust means:** your shopping stays on your device. Carbon calculation is instant, local, and private by default. External enrichment is opt-in.
+The average American generates **~16 tonnes of CO₂** per year, with a major share from consumer goods. CarboKnot is a tool to surface that cost at the exact moment of decision — without requiring you to trust a server with your purchase data.
 
 ---
 

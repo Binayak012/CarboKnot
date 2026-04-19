@@ -1008,7 +1008,7 @@ export default function App() {
       <main className="max-w-[1280px] mx-auto px-6 md:px-10 pt-6 md:pt-10 relative z-10 space-y-8 md:space-y-12">
 
         {/* ============================================================
-            MARKETING STRIP — thin announcement band (Source / Install)
+            MARKETING STRIP — thin announcement band (Install)
            ============================================================ */}
         <div className="flex flex-wrap items-center gap-3 text-[11px] font-mono">
           {showingDemoData ? (
@@ -1046,14 +1046,6 @@ export default function App() {
             href="https://github.com/Binayak012/CarboKnot"
             target="_blank"
             rel="noopener noreferrer"
-            className="btn-block"
-          >
-            Source <ArrowUpRight size={12} />
-          </a>
-          <a
-            href="https://github.com/Binayak012/CarboKnot"
-            target="_blank"
-            rel="noopener noreferrer"
             className="btn-block btn-block-active"
           >
             Install Extension <ArrowUpRight size={12} />
@@ -1076,14 +1068,19 @@ export default function App() {
             loop
             eyebrow={
               <span className="inline-flex items-center gap-3">
-                <img
-                  src={logoUrl}
-                  alt="Carboknot logo"
-                  width={56}
-                  height={56}
-                  className="h-12 w-12 md:h-14 md:w-14 object-contain shrink-0"
-                  draggable={false}
-                />
+                <span
+                  data-logo-plate
+                  className="logo-plate relative inline-flex items-center justify-center shrink-0 h-12 w-12 md:h-14 md:w-14 rounded-full"
+                >
+                  <img
+                    src={logoUrl}
+                    alt="Carboknot logo"
+                    width={56}
+                    height={56}
+                    className="relative h-9 w-9 md:h-10 md:w-10 object-contain"
+                    draggable={false}
+                  />
+                </span>
                 <span
                   data-hero-wordmark
                   className="display text-zinc-50 leading-none tracking-[-0.05em] normal-case text-[36px] md:text-[52px]"
