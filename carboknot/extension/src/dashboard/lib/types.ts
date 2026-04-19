@@ -39,3 +39,10 @@ export interface ClimatiqCacheStats {
   miss_count_session: number;
   total_entries: number;
 }
+
+export interface AuditEntry {
+  id?: number;
+  event_type: string;
+  timestamp: string;
+  details?: Record<string, unknown>;
+}
