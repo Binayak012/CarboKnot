@@ -155,22 +155,7 @@ pnpm test:extension
 7. **Act** — One-click to offset, swap via Knot AgenticShopping, or cancel a subscription
 
 ### Carbon Pipeline
-
-```
-Amazon Product Page (DOM)
-        │
-        ▼
-On-device Carbon Engine  ←── bundled category benchmarks
-        │
-        ├── fast path: local estimate, instant badge
-        │
-        └── enriched path (opt-in):
-                ├── Climatiq  → precise CO₂e number
-                └── K2 Think V2 → reasoning explanation
-                        │
-                        ▼
-                   Badge + Dashboard
-```
+<img width="1091" height="661" alt="Screenshot 2026-04-19 at 4 11 52 AM" src="https://github.com/user-attachments/assets/11326550-3dc7-401f-9457-24b17c32c49b" />
 
 ### K2 Think V2 Reasoning Example
 
