@@ -390,6 +390,359 @@
   }
   .dock-seg-active .code  { color: rgba(4, 8, 10, 0.6); }
   .dock-seg-active .label { color: #04080a; }
+
+  /* ------------------------------------------------------------
+     CAROUSEL — scroll-snap swipeable tile rail
+     ------------------------------------------------------------ */
+  .carousel-root {
+    position: relative;
+    width: 100%;
+  }
+  .carousel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+    min-height: 28px;
+  }
+  .carousel-eyebrow {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+  }
+  .carousel-arrows {
+    display: inline-flex;
+    gap: 6px;
+  }
+  .carousel-arrow {
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--rule);
+    background: var(--paper-2);
+    color: var(--ink-dim);
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+  .carousel-arrow:hover:not(:disabled) {
+    color: #d8ffb0;
+    border-color: rgba(182, 255, 60, 0.5);
+    background: rgba(182, 255, 60, 0.06);
+  }
+  .carousel-arrow:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+
+  .carousel-track {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 4px;
+  }
+  .carousel-track::-webkit-scrollbar {
+    display: none;
+  }
+  .carousel-slide {
+    flex-shrink: 0;
+    flex-grow: 0;
+    min-width: 0;
+    scroll-snap-align: start;
+    display: flex;
+  }
+  .carousel-slide > * {
+    width: 100%;
+  }
+
+  .carousel-dots {
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    margin-top: 12px;
+  }
+  .carousel-dot {
+    width: 18px;
+    height: 4px;
+    border: 0;
+    background: var(--rule);
+    cursor: pointer;
+    padding: 0;
+    transition: background 0.15s, width 0.2s;
+  }
+  .carousel-dot:hover {
+    background: rgba(182, 255, 60, 0.4);
+  }
+  .carousel-dot-active {
+    background: #b6ff3c;
+    width: 32px;
+    box-shadow: 0 0 10px rgba(182, 255, 60, 0.5);
+  }
+
+  /* ------------------------------------------------------------
+     CAROUSEL STAGE — wraps the track so we can absolutely position
+     overlay arrows next to the slides without breaking dot alignment.
+     ------------------------------------------------------------ */
+  .carousel-stage {
+    position: relative;
+  }
+
+  /* Soft circular overlay arrows that float on the left/right edges
+     of the slide. Used when a Carousel is rendered with overlayArrows. */
+  .carousel-overlay-arrow {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 5;
+    width: 44px;
+    height: 44px;
+    border-radius: 9999px;
+    border: 1px solid rgba(8, 30, 12, 0.18);
+    background: rgba(8, 30, 12, 0.10);
+    color: rgba(8, 30, 12, 0.55);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    transition: background 0.18s ease, color 0.18s ease,
+      border-color 0.18s ease, opacity 0.18s ease, transform 0.18s ease;
+  }
+  .carousel-overlay-arrow:hover:not(:disabled) {
+    background: rgba(8, 30, 12, 0.22);
+    color: #04140a;
+    border-color: rgba(8, 30, 12, 0.45);
+  }
+  .carousel-overlay-arrow:active:not(:disabled) {
+    transform: translateY(-50%) scale(0.94);
+  }
+  .carousel-overlay-arrow:disabled {
+    opacity: 0;
+    pointer-events: none;
+  }
+  .carousel-overlay-arrow-left {
+    left: 14px;
+  }
+  .carousel-overlay-arrow-right {
+    right: 14px;
+  }
+  @media (max-width: 639px) {
+    .carousel-overlay-arrow {
+      width: 36px;
+      height: 36px;
+    }
+    .carousel-overlay-arrow-left {
+      left: 8px;
+    }
+    .carousel-overlay-arrow-right {
+      right: 8px;
+    }
+  }
+
+  /* ------------------------------------------------------------
+     HERO CAROUSEL — full-bleed swipeable summary band (~60vh).
+     Dark forest tile by default (matches the dark dashboard theme).
+     Light theme override flips it to a lime paper tile further below.
+     ------------------------------------------------------------ */
+  .carousel-hero .carousel-track {
+    border-radius: 24px;
+  }
+  .hero-carousel-slide {
+    min-height: clamp(420px, 60vh, 720px);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    position: relative;
+    overflow: hidden;
+    border-radius: 24px;
+  }
+  .hero-carousel-slide .hero-display {
+    font-size: clamp(96px, 16vw, 220px);
+    line-height: 0.78;
+  }
+  .hero-carousel-slide .hero-display-md {
+    font-size: clamp(72px, 12vw, 160px);
+    line-height: 0.82;
+  }
+
+  /* ============================================================
+     LIGHT THEME — opt-in via [data-theme="light"] on <html>.
+     Lime paper page · dark forest tiles · black text on lime.
+     The hero carousel keeps its own lime tile (already !important).
+     ============================================================ */
+  :root[data-theme="light"] {
+    --paper: #d8ffb8;
+    --paper-2: #0a2510;
+    --paper-3: #0d2c14;
+    --rule: #1c4628;
+  }
+  [data-theme="light"] body {
+    background-color: #d8ffb8;
+    color: #04140a;
+    background-image:
+      radial-gradient(ellipse 70% 40% at 50% -10%, rgba(8, 30, 12, 0.10), transparent 60%),
+      radial-gradient(ellipse 60% 40% at 100% 100%, rgba(8, 30, 12, 0.08), transparent 70%);
+  }
+  [data-theme="light"] .grid-bg {
+    background-image:
+      linear-gradient(rgba(8, 30, 12, 0.10) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(8, 30, 12, 0.10) 1px, transparent 1px);
+  }
+
+  /* Tile palette flips: dark forest tiles glow against the lime paper. */
+  [data-theme="light"] .tile-acid {
+    background:
+      radial-gradient(120% 80% at 100% 0%, rgba(182, 255, 60, 0.10), transparent 60%),
+      linear-gradient(180deg, #0d2c14 0%, #061a0c 100%);
+    border: 1px solid rgba(182, 255, 60, 0.32);
+    box-shadow:
+      0 0 0 1px rgba(182, 255, 60, 0.05) inset,
+      0 30px 60px -30px rgba(31, 107, 63, 0.6);
+    color: #d8ffb0;
+  }
+  [data-theme="light"] .tile-ink {
+    background: #061a0c;
+  }
+  [data-theme="light"] .tile-hero {
+    background:
+      radial-gradient(120% 80% at 100% 0%, rgba(182, 255, 60, 0.12), transparent 60%),
+      linear-gradient(180deg, #0d2c14 0%, #061a0c 100%);
+    border: 1px solid rgba(182, 255, 60, 0.22);
+  }
+
+  /* Page-level (non-tile) text on the lime paper goes black. */
+  [data-theme="light"] [data-page-ink] { color: #04140a; }
+
+  /* Carousel chrome on lime paper. */
+  [data-theme="light"] .carousel-eyebrow { color: rgba(8, 30, 12, 0.65); }
+  [data-theme="light"] .carousel-arrow {
+    border-color: rgba(8, 30, 12, 0.28);
+    color: #04140a;
+  }
+  [data-theme="light"] .carousel-arrow:hover:not(:disabled) {
+    color: #04140a;
+    border-color: rgba(8, 30, 12, 0.55);
+    background: #b6ff3c;
+  }
+  [data-theme="light"] .carousel-dot {
+    background: rgba(8, 30, 12, 0.22);
+  }
+
+  /* Section headers (PosterHeader) sit on lime paper — flip ink. */
+  [data-theme="light"] [data-poster-index] { color: rgba(31, 107, 63, 0.40) !important; }
+  [data-theme="light"] [data-poster-kicker] { color: #1f6b3f !important; }
+  [data-theme="light"] [data-poster-title] { color: #04140a !important; }
+  [data-theme="light"] [data-poster-hint] { color: rgba(8, 30, 12, 0.6) !important; }
+
+  /* Hero CarboKnot wordmark sits on lime paper — flip to dark forest. */
+  [data-theme="light"] [data-hero-wordmark] { color: #04140a !important; }
+  [data-theme="light"] [data-hero-wordmark-accent] { color: #1f6b3f !important; }
+
+  /* ----------------------------------------------------------
+     LIGHT-THEME HERO CAROUSEL — single lime tile sitting on the
+     lime page. Inverse of the dark default: bright tile, dark ink.
+     ---------------------------------------------------------- */
+  [data-theme="light"] .hero-carousel-slide,
+  [data-theme="light"] .hero-carousel-slide.tile-hero {
+    background:
+      radial-gradient(120% 80% at 100% 0%, rgba(255, 255, 255, 0.45), transparent 55%),
+      linear-gradient(180deg, #e8ffb8 0%, #c8f56b 100%) !important;
+    border: 1px solid rgba(8, 30, 12, 0.18) !important;
+    color: #04140a !important;
+  }
+  [data-theme="light"] .hero-carousel-slide :is(.display, .display-mono) {
+    color: #04140a !important;
+  }
+  [data-theme="light"] .hero-carousel-slide :is(.eyebrow, .eyebrow-acid) {
+    color: #0a3d18 !important;
+  }
+  [data-theme="light"] .hero-carousel-slide :is(
+    [class*="text-zinc-50"],
+    [class*="text-zinc-100"],
+    [class*="text-zinc-200"]
+  ) {
+    color: #04140a !important;
+  }
+  [data-theme="light"] .hero-carousel-slide :is(
+    [class*="text-zinc-300"],
+    [class*="text-zinc-400"],
+    [class*="text-zinc-500"],
+    [class*="text-zinc-600"],
+    [class*="text-zinc-700"]
+  ) {
+    color: #1a4d28 !important;
+  }
+  [data-theme="light"] .hero-carousel-slide [class*="b6ff3c"],
+  [data-theme="light"] .hero-carousel-slide [class*="d8ffb0"] {
+    color: #0a3d18 !important;
+  }
+  [data-theme="light"] .hero-carousel-slide [class*="7d8a82"],
+  [data-theme="light"] .hero-carousel-slide [class*="3a4540"] {
+    color: #2d5a3a !important;
+  }
+  [data-theme="light"] .hero-carousel-slide .acid-glow {
+    text-shadow: none !important;
+  }
+  [data-theme="light"] .hero-carousel-slide .hatch {
+    opacity: 0.06 !important;
+  }
+  [data-theme="light"] .hero-carousel-slide :is(.chip, .chip-acid, .chip-warn) {
+    background: rgba(8, 30, 12, 0.08) !important;
+    border-color: rgba(8, 30, 12, 0.28) !important;
+    color: #04140a !important;
+  }
+  [data-theme="light"] .hero-carousel-slide :is(.chip, .chip-acid, .chip-warn) .tick {
+    background: #04140a !important;
+    box-shadow: 0 0 0 0 rgba(4, 20, 10, 0.55) !important;
+  }
+  [data-theme="light"] .hero-carousel-slide .btn-block {
+    background: rgba(255, 255, 255, 0.45) !important;
+    border-color: rgba(8, 30, 12, 0.28) !important;
+    color: #04140a !important;
+  }
+  [data-theme="light"] .hero-carousel-slide .btn-block:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.7) !important;
+    border-color: rgba(8, 30, 12, 0.45) !important;
+  }
+  [data-theme="light"] .hero-carousel-slide .btn-block-active {
+    background: #04140a !important;
+    color: #c8f56b !important;
+    border-color: #04140a !important;
+  }
+  [data-theme="light"] .hero-carousel-slide .btn-block-active:hover:not(:disabled) {
+    background: #0a2510 !important;
+  }
+  [data-theme="light"] .hero-carousel-slide [class*="border-y"],
+  [data-theme="light"] .hero-carousel-slide [class*="border-t"],
+  [data-theme="light"] .hero-carousel-slide [class*="border-b"],
+  [data-theme="light"] .hero-carousel-slide [class*="border-["],
+  [data-theme="light"] .hero-carousel-slide [class*="divide-"] > * + * {
+    border-color: rgba(8, 30, 12, 0.16) !important;
+  }
+
+  /* In dark mode the overlay arrows sit on a dark forest hero tile —
+     flip them to soft white-on-dark for visibility. */
+  :root:not([data-theme="light"]) .carousel-overlay-arrow {
+    border-color: rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(232, 239, 233, 0.75);
+  }
+  :root:not([data-theme="light"]) .carousel-overlay-arrow:hover:not(:disabled) {
+    background: rgba(182, 255, 60, 0.18);
+    color: #d8ffb0;
+    border-color: rgba(182, 255, 60, 0.45);
+  }
 }
 
 /* =============================================================
