@@ -253,11 +253,6 @@ Team Members (in alphabetical order): Anshuraj Sedai, Binayak Subedi, Pranish Up
 
 ---
 
-## 📄 License
-
-MIT License — see [LICENSE](LICENSE) for details.
-
----
 
 ## 🙏 Credits & Acknowledgements
 
