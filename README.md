@@ -4,7 +4,7 @@
 A Chrome extension that shows you the carbon cost of anything you're about to buy — calculated on your device, explained by AI, and connected to your full purchase history so you can actually do something about it. The carbon engine runs entirely inside your browser — your purchase data never leaves your device. It intercepts products before you buy, calculates their CO₂e footprint locally, surfaces greener alternatives powered by K2 Think V2 reasoning, and connects to your full purchase history via Knot's API to give you a unified picture of your shopping emissions.
 
 ---
-Inspiration 🌍
+# Inspiration 🌍
 
 Every purchase we make—whether it’s electronics, clothing, or household goods—has an environmental cost that most consumers never see. Carbon footprint data usually lives in academic reports or sustainability dashboards, not at the moment when people are actually making purchasing decisions.
 
