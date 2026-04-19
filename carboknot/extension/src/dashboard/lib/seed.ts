@@ -1,310 +1,1300 @@
 // Demo seed for the dashboard. When the local Dexie DB is empty (e.g. fresh
-// install during a demo) we inject ~20 rich, varied product views so the UI
-// has something to render. Setting `localStorage.carboknot_seeded = '1'`
-// (or wiping local storage via Settings → Reset) re-enables seeding next time.
+// install during a demo, or running the standalone vite preview at
+// localhost) we inject a rich, varied set of product views so the UI has
+// something to render. The shape mirrors the live ViewRow that the service
+// worker writes after a real product page lookup, so the dashboard's
+// downstream code can treat seed and live data identically.
+//
+// `purchased` is set on a subset of rows so the Confirmed-vs-Browsing filter
+// in section 04 is meaningful out of the box.
 
-import type { ViewRow } from './types';
+import type { AuditEntry, ViewRow, SubscriptionRow } from './types';
 
 const now = Date.now();
 const DAY = 86400000;
-const HOUR = 3600000;
 
-function mockTrace(opts: {
-  category: string;
-  price: number;
-  source: ViewRow['data_source'];
-  isic4: string;
-  activity: string;
-  steps: string[];
-  assumptions: string[];
-  score: number;
-}): string {
+function daysAgo(n: number, offsetMs = 0): number {
+  return now - n * DAY + offsetMs;
+}
+
+function makeTrace(
+  category: string,
+  price_usd: number,
+  source: 'climatiq_fresh' | 'climatiq_cached' | 'local_fallback',
+  isic4: string,
+  activityId: string,
+  steps: string[],
+  assumptions: string[],
+  confidenceScore: number
+): string {
   return JSON.stringify({
-    inputs: { category: opts.category, price_usd: opts.price, currency: 'USD', region: 'US' },
-    lookup_source: opts.source,
-    data_source: opts.source,
-    computation_steps: opts.steps,
+    inputs: { category, price_usd, currency: 'USD', region: 'US' },
+    lookup_source: source,
+    computation_steps: steps,
     confidence: {
-      level: opts.score >= 0.75 ? 'high' : opts.score >= 0.5 ? 'medium' : 'low',
-      score: opts.score
+      level:
+        confidenceScore >= 0.75
+          ? 'high'
+          : confidenceScore >= 0.5
+          ? 'medium'
+          : 'low',
+      score: confidenceScore,
     },
-    assumptions: opts.assumptions,
+    assumptions,
     methodology_version: 'v2.4.1',
-    isic4_code: opts.isic4,
-    climatiq_activity_id: opts.activity
+    data_source: source,
+    isic4_code: isic4,
+    climatiq_activity_id: activityId,
   });
 }
 
 export const SEED_VIEWS: ViewRow[] = [
   {
     id: 's01',
-    ts: now - 0.5 * HOUR,
+    ts: daysAgo(0, -1800000),
     merchant: 'amazon',
     title: 'Sony WH-1000XM5 Wireless Noise Cancelling Headphones',
     category: 'audio_electronics',
     category_uncertain: false,
-    kg_total: 42.3, kg_ci_low: 35.9, kg_ci_high: 48.7, price_usd: 279.99,
+    kg_total: 42.3,
+    kg_ci_low: 35.9,
+    kg_ci_high: 48.7,
+    price_usd: 279.99,
     data_source: 'climatiq_fresh',
-    trace: mockTrace({
-      category: 'audio_electronics', price: 279.99, source: 'climatiq_fresh',
-      isic4: '2640', activity: 'electronics/consumer-electronics/manufacturing',
-      steps: [
-        '1. Map category audio_electronics → ISIC4 2640',
-        '2. Query Climatiq with spend $279.99',
-        '3. Apply emission factor 0.151 kg CO₂e/USD',
-        '4. Raw: 279.99 × 0.151 = 42.28 kg',
-        '5. US regional ×1.001',
-        '6. Final: 42.3 kg (CI ±6.4)'
+    purchased: true,
+    trace: makeTrace(
+      'audio_electronics',
+      279.99,
+      'climatiq_fresh',
+      '2640',
+      'electronics/consumer-electronics/manufacturing',
+      [
+        "1. Map category 'audio_electronics' → ISIC4 code 2640",
+        '2. Query Climatiq activity electronics/consumer-electronics/manufacturing with spend $279.99 USD',
+        '3. Apply spend-based emission factor: 0.151 kg CO₂e per USD',
+        '4. Raw estimate: 279.99 × 0.151 = 42.28 kg CO₂e',
+        '5. Apply US regional adjustment factor: ×1.001',
+        '6. Final estimate: 42.3 kg CO₂e (CI: ±6.4 kg)',
       ],
-      assumptions: ['Spend-based LCA', 'US grid mix', 'No EOL credits'],
-      score: 0.82
-    })
+      [
+        'Spend-based LCA model',
+        'US average grid mix',
+        'No end-of-life credits applied',
+      ],
+      0.82
+    ),
   },
   {
-    id: 's02', ts: now - 1 * HOUR, merchant: 'bestbuy',
+    id: 's02',
+    ts: daysAgo(0, -3600000),
+    merchant: 'bestbuy',
     title: 'Apple MacBook Pro 14-inch M3 Pro',
-    category: 'laptops', category_uncertain: false,
-    kg_total: 78.5, kg_ci_low: 68.2, kg_ci_high: 88.8, price_usd: 1999.0,
+    category: 'laptops',
+    category_uncertain: false,
+    kg_total: 78.5,
+    kg_ci_low: 68.2,
+    kg_ci_high: 88.8,
+    price_usd: 1999.0,
     data_source: 'climatiq_cached',
-    trace: mockTrace({
-      category: 'laptops', price: 1999, source: 'climatiq_cached',
-      isic4: '2620', activity: 'electronics/computers/manufacturing',
-      steps: ['Cache hit', 'Factor 0.039', 'Final 78.5 kg'],
-      assumptions: ['Cradle-to-gate', 'Battery cells included'], score: 0.79
-    })
+    purchased: true,
+    trace: makeTrace(
+      'laptops',
+      1999.0,
+      'climatiq_cached',
+      '2620',
+      'electronics/computers/manufacturing',
+      [
+        "1. Map category 'laptops' → ISIC4 code 2620",
+        '2. Cache hit: activity electronics/computers/manufacturing, spend $1999 USD',
+        '3. Cached emission factor: 0.039 kg CO₂e per USD',
+        '4. Raw estimate: 1999.0 × 0.039 = 77.96 kg CO₂e',
+        '5. Apply US regional adjustment factor: ×1.007',
+        '6. Final estimate: 78.5 kg CO₂e (CI: ±10.3 kg)',
+      ],
+      [
+        'Spend-based cradle-to-gate',
+        'Cache age: 3 days',
+        'Battery cell emissions included',
+      ],
+      0.79
+    ),
   },
   {
-    id: 's03', ts: now - 1 * DAY - 2 * HOUR, merchant: 'walmart',
+    id: 's03',
+    ts: daysAgo(1, -7200000),
+    merchant: 'walmart',
     title: 'Samsung 65" QLED 4K TV QN65Q80C',
-    category: 'audio_electronics', category_uncertain: false,
-    kg_total: 65.1, kg_ci_low: 54.4, kg_ci_high: 75.8, price_usd: 897.0,
+    category: 'audio_electronics',
+    category_uncertain: false,
+    kg_total: 65.1,
+    kg_ci_low: 54.4,
+    kg_ci_high: 75.8,
+    price_usd: 897.0,
     data_source: 'climatiq_cached',
-    trace: mockTrace({
-      category: 'audio_electronics', price: 897, source: 'climatiq_cached',
-      isic4: '2640', activity: 'electronics/consumer-electronics/manufacturing',
-      steps: ['Cache hit', 'Factor 0.0726', 'Final 65.1 kg'],
-      assumptions: ['Display panel mfg', 'Logistics excluded'], score: 0.76
-    })
+    trace: makeTrace(
+      'audio_electronics',
+      897.0,
+      'climatiq_cached',
+      '2640',
+      'electronics/consumer-electronics/manufacturing',
+      [
+        "1. Map category 'audio_electronics' → ISIC4 code 2640",
+        '2. Cache hit: activity electronics/consumer-electronics/manufacturing, spend $897 USD',
+        '3. Cached emission factor: 0.0726 kg CO₂e per USD',
+        '4. Raw estimate: 897.0 × 0.0726 = 65.12 kg CO₂e',
+        '5. Apply US regional adjustment: ×1.0',
+        '6. Final estimate: 65.1 kg CO₂e (CI: ±10.7 kg)',
+      ],
+      [
+        'Display panel manufacturing included',
+        'Logistics excluded',
+        'Average US consumer electronics mix',
+      ],
+      0.76
+    ),
   },
   {
-    id: 's04', ts: now - 1 * DAY - 4 * HOUR, merchant: 'amazon',
+    id: 's04',
+    ts: daysAgo(1, -14400000),
+    merchant: 'amazon',
     title: 'Google Pixel 9 Pro 256GB Obsidian',
-    category: 'smartphones', category_uncertain: false,
-    kg_total: 55.7, kg_ci_low: 47.8, kg_ci_high: 63.6, price_usd: 999.0,
+    category: 'smartphones',
+    category_uncertain: false,
+    kg_total: 55.7,
+    kg_ci_low: 47.8,
+    kg_ci_high: 63.6,
+    price_usd: 999.0,
     data_source: 'climatiq_fresh',
-    trace: mockTrace({
-      category: 'smartphones', price: 999, source: 'climatiq_fresh',
-      isic4: '2630', activity: 'electronics/mobile-phones/manufacturing',
-      steps: ['Climatiq query', 'Factor 0.0558', 'Final 55.7 kg'],
-      assumptions: ['Cradle-to-gate', 'Semi fab energy included'], score: 0.84
-    })
+    purchased: true,
+    trace: makeTrace(
+      'smartphones',
+      999.0,
+      'climatiq_fresh',
+      '2630',
+      'electronics/mobile-phones/manufacturing',
+      [
+        "1. Map category 'smartphones' → ISIC4 code 2630",
+        '2. Query Climatiq activity electronics/mobile-phones/manufacturing with spend $999 USD',
+        '3. Apply spend-based emission factor: 0.0558 kg CO₂e per USD',
+        '4. Raw estimate: 999 × 0.0558 = 55.74 kg CO₂e',
+        '5. Apply US regional adjustment: ×1.0',
+        '6. Final estimate: 55.7 kg CO₂e (CI: ±7.9 kg)',
+      ],
+      [
+        'Cradle-to-gate boundary',
+        'Semiconductor fabrication energy included',
+        'No recycled content credit',
+      ],
+      0.84
+    ),
   },
   {
-    id: 's05', ts: now - 2 * DAY - 1 * HOUR, merchant: 'target',
+    id: 's05',
+    ts: daysAgo(2, -3600000),
+    merchant: 'target',
     title: "Levi's 501 Original Fit Jeans - Dark Indigo",
-    category: 'apparel_tops', category_uncertain: false,
-    kg_total: 8.1, kg_ci_low: 6.4, kg_ci_high: 9.8, price_usd: 59.99,
+    category: 'apparel_tops',
+    category_uncertain: false,
+    kg_total: 8.1,
+    kg_ci_low: 6.4,
+    kg_ci_high: 9.8,
+    price_usd: 59.99,
     data_source: 'climatiq_cached',
-    trace: mockTrace({
-      category: 'apparel_tops', price: 59.99, source: 'climatiq_cached',
-      isic4: '1410', activity: 'apparel/clothing-manufacturing',
-      steps: ['Cache hit', 'Factor 0.135', 'Final 8.1 kg'],
-      assumptions: ['Cotton cultivation', 'Dye process'], score: 0.71
-    })
+    purchased: true,
+    trace: makeTrace(
+      'apparel_tops',
+      59.99,
+      'climatiq_cached',
+      '1410',
+      'apparel/clothing-manufacturing',
+      [
+        "1. Map category 'apparel_tops' → ISIC4 code 1410",
+        '2. Cache hit: activity apparel/clothing-manufacturing, spend $59.99 USD',
+        '3. Cached emission factor: 0.135 kg CO₂e per USD',
+        '4. Raw estimate: 59.99 × 0.135 = 8.1 kg CO₂e',
+        '5. No regional adjustment applied for global textile supply chain',
+        '6. Final estimate: 8.1 kg CO₂e (CI: ±1.7 kg)',
+      ],
+      [
+        'Cotton cultivation emissions included',
+        'Dye process included',
+        'End-of-life excluded',
+      ],
+      0.71
+    ),
   },
   {
-    id: 's06', ts: now - 2 * DAY - 3 * HOUR, merchant: 'ebay',
+    id: 's06',
+    ts: daysAgo(2, -10800000),
+    merchant: 'ebay',
     title: 'Nike Air Max 270 Running Shoes Size 11',
-    category: 'footwear', category_uncertain: false,
-    kg_total: 12.4, kg_ci_low: 9.8, kg_ci_high: 15.0, price_usd: 89.0,
+    category: 'footwear',
+    category_uncertain: false,
+    kg_total: 12.4,
+    kg_ci_low: 9.8,
+    kg_ci_high: 15.0,
+    price_usd: 89.0,
     data_source: 'climatiq_fresh',
-    trace: mockTrace({
-      category: 'footwear', price: 89, source: 'climatiq_fresh',
-      isic4: '1520', activity: 'apparel/footwear-manufacturing',
-      steps: ['Climatiq query', 'Factor 0.1393', 'Final 12.4 kg'],
-      assumptions: ['Rubber sole', 'Transport included'], score: 0.73
-    })
+    trace: makeTrace(
+      'footwear',
+      89.0,
+      'climatiq_fresh',
+      '1520',
+      'apparel/footwear-manufacturing',
+      [
+        "1. Map category 'footwear' → ISIC4 code 1520",
+        '2. Query Climatiq activity apparel/footwear-manufacturing with spend $89 USD',
+        '3. Apply spend-based emission factor: 0.1393 kg CO₂e per USD',
+        '4. Raw estimate: 89 × 0.1393 = 12.4 kg CO₂e',
+        '5. No regional adjustment (global manufacturing assumed)',
+        '6. Final estimate: 12.4 kg CO₂e (CI: ±2.6 kg)',
+      ],
+      [
+        'Rubber sole manufacturing included',
+        'Transport to distribution center included',
+        'Retail packaging included',
+      ],
+      0.73
+    ),
   },
   {
-    id: 's07', ts: now - 3 * DAY - 1.5 * HOUR, merchant: 'amazon',
+    id: 's07',
+    ts: daysAgo(3, -5400000),
+    merchant: 'amazon',
     title: 'Atomic Habits: An Easy & Proven Way to Build Good Habits',
-    category: 'books', category_uncertain: false,
-    kg_total: 1.2, kg_ci_low: 0.9, kg_ci_high: 1.5, price_usd: 14.99,
+    category: 'books',
+    category_uncertain: false,
+    kg_total: 1.2,
+    kg_ci_low: 0.9,
+    kg_ci_high: 1.5,
+    price_usd: 14.99,
     data_source: 'climatiq_cached',
-    trace: mockTrace({
-      category: 'books', price: 14.99, source: 'climatiq_cached',
-      isic4: '5811', activity: 'media/book-publishing',
-      steps: ['Cache hit', 'Factor 0.0801', 'Final 1.2 kg'],
-      assumptions: ['Paper production', 'Distribution est'], score: 0.88
-    })
+    purchased: true,
+    trace: makeTrace(
+      'books',
+      14.99,
+      'climatiq_cached',
+      '5811',
+      'media/book-publishing',
+      [
+        "1. Map category 'books' → ISIC4 code 5811",
+        '2. Cache hit: activity media/book-publishing, spend $14.99 USD',
+        '3. Cached emission factor: 0.0801 kg CO₂e per USD',
+        '4. Raw estimate: 14.99 × 0.0801 = 1.2 kg CO₂e',
+        '5. No regional adjustment',
+        '6. Final estimate: 1.2 kg CO₂e (CI: ±0.3 kg)',
+      ],
+      [
+        'Paper production emissions included',
+        'Printing energy included',
+        'Distribution estimated at avg 200 miles',
+      ],
+      0.88
+    ),
   },
   {
-    id: 's08', ts: now - 3 * DAY - 5 * HOUR, merchant: 'walmart',
-    title: 'Neutrogena Hydro Boost Water Gel Moisturizer',
-    category: 'beauty', category_uncertain: false,
-    kg_total: 0.8, kg_ci_low: 0.6, kg_ci_high: 1.1, price_usd: 18.97,
+    id: 's08',
+    ts: daysAgo(3, -18000000),
+    merchant: 'walmart',
+    title: 'Neutrogena Hydro Boost Water Gel Moisturizer SPF 15',
+    category: 'beauty',
+    category_uncertain: false,
+    kg_total: 0.8,
+    kg_ci_low: 0.6,
+    kg_ci_high: 1.1,
+    price_usd: 18.97,
     data_source: 'climatiq_cached',
-    trace: mockTrace({
-      category: 'beauty', price: 18.97, source: 'climatiq_cached',
-      isic4: '2042', activity: 'manufacturing/cosmetics-toiletries',
-      steps: ['Cache hit', 'Factor 0.0421', 'Final 0.8 kg'],
-      assumptions: ['Ingredient sourcing', 'Plastic packaging'], score: 0.67
-    })
+    trace: makeTrace(
+      'beauty',
+      18.97,
+      'climatiq_cached',
+      '2042',
+      'manufacturing/cosmetics-toiletries',
+      [
+        "1. Map category 'beauty' → ISIC4 code 2042",
+        '2. Cache hit: activity manufacturing/cosmetics-toiletries, spend $18.97 USD',
+        '3. Cached emission factor: 0.0421 kg CO₂e per USD',
+        '4. Raw estimate: 18.97 × 0.0421 = 0.799 kg CO₂e',
+        '5. Round to 0.8 kg CO₂e',
+        '6. Final estimate: 0.8 kg CO₂e (CI: ±0.25 kg)',
+      ],
+      [
+        'Ingredient sourcing included',
+        'Plastic packaging included',
+        'Retail markup excluded from emission factor',
+      ],
+      0.67
+    ),
   },
   {
-    id: 's09', ts: now - 4 * DAY - 2 * HOUR, merchant: 'target',
+    id: 's09',
+    ts: daysAgo(4, -7200000),
+    merchant: 'target',
     title: 'KIND Bars Variety Pack, Gluten Free, 18 Count',
-    category: 'food_packaged', category_uncertain: false,
-    kg_total: 3.4, kg_ci_low: 2.6, kg_ci_high: 4.2, price_usd: 22.49,
+    category: 'food_packaged',
+    category_uncertain: false,
+    kg_total: 3.4,
+    kg_ci_low: 2.6,
+    kg_ci_high: 4.2,
+    price_usd: 22.49,
     data_source: 'climatiq_fresh',
-    trace: mockTrace({
-      category: 'food_packaged', price: 22.49, source: 'climatiq_fresh',
-      isic4: '1079', activity: 'food/packaged-food-processing',
-      steps: ['Climatiq query', 'Factor 0.151', 'Final 3.4 kg'],
-      assumptions: ['Ag input emissions', 'Packaging incl'], score: 0.69
-    })
+    purchased: true,
+    trace: makeTrace(
+      'food_packaged',
+      22.49,
+      'climatiq_fresh',
+      '1079',
+      'food/packaged-food-processing',
+      [
+        "1. Map category 'food_packaged' → ISIC4 code 1079",
+        '2. Query Climatiq activity food/packaged-food-processing with spend $22.49 USD',
+        '3. Apply spend-based emission factor: 0.151 kg CO₂e per USD',
+        '4. Raw estimate: 22.49 × 0.151 = 3.396 kg CO₂e',
+        '5. Round to 3.4 kg CO₂e',
+        '6. Final estimate: 3.4 kg CO₂e (CI: ±0.8 kg)',
+      ],
+      [
+        'Agricultural input emissions included',
+        'Packaging materials included',
+        'Cold chain excluded (dry goods)',
+      ],
+      0.69
+    ),
   },
   {
-    id: 's10', ts: now - 4 * DAY - 7 * HOUR, merchant: 'amazon',
+    id: 's10',
+    ts: daysAgo(4, -25200000),
+    merchant: 'amazon',
     title: 'HDMI 2.1 Cable 8K 6ft - High Speed 48Gbps',
-    category: 'general', category_uncertain: true,
-    kg_total: 2.1, kg_ci_low: 1.4, kg_ci_high: 2.8, price_usd: 12.99,
+    category: 'general',
+    category_uncertain: true,
+    kg_total: 2.1,
+    kg_ci_low: 1.4,
+    kg_ci_high: 2.8,
+    price_usd: 12.99,
     data_source: 'local_fallback',
-    trace: mockTrace({
-      category: 'general', price: 12.99, source: 'local_fallback',
-      isic4: '2699', activity: 'manufacturing/other-products',
-      steps: ['Category uncertain', 'Local fallback factor 0.162', 'Final 2.1 kg'],
-      assumptions: ['General merchandise factor', 'Higher uncertainty'], score: 0.41
-    })
+    trace: makeTrace(
+      'general',
+      12.99,
+      'local_fallback',
+      '2699',
+      'manufacturing/other-products',
+      [
+        '1. Category uncertain — could not match to specific ISIC4 with confidence ≥0.6',
+        '2. Falling back to local general-merchandise emission factor: 0.162 kg CO₂e per USD',
+        '3. Raw estimate: 12.99 × 0.162 = 2.104 kg CO₂e',
+        '4. Apply uncertainty penalty: CI widened to ±33%',
+        '5. Final estimate: 2.1 kg CO₂e (CI: ±0.7 kg)',
+      ],
+      [
+        'General merchandise factor used — higher uncertainty',
+        'No ISIC4 match found above confidence threshold',
+        'Local model v2.4.1',
+      ],
+      0.41
+    ),
   },
   {
-    id: 's11', ts: now - 5 * DAY - 1 * HOUR, merchant: 'bestbuy',
+    id: 's11',
+    ts: daysAgo(5, -3600000),
+    merchant: 'bestbuy',
     title: 'Bose QuietComfort 45 Bluetooth Wireless Headphones',
-    category: 'audio_electronics', category_uncertain: false,
-    kg_total: 31.8, kg_ci_low: 26.7, kg_ci_high: 36.9, price_usd: 229.0,
+    category: 'audio_electronics',
+    category_uncertain: false,
+    kg_total: 31.8,
+    kg_ci_low: 26.7,
+    kg_ci_high: 36.9,
+    price_usd: 229.0,
     data_source: 'climatiq_cached',
-    trace: mockTrace({
-      category: 'audio_electronics', price: 229, source: 'climatiq_cached',
-      isic4: '2640', activity: 'electronics/consumer-electronics/manufacturing',
-      steps: ['Cache hit', 'Factor 0.1389', 'Final 31.8 kg'],
-      assumptions: ['Li-ion battery mfg', 'Casing included'], score: 0.81
-    })
+    trace: makeTrace(
+      'audio_electronics',
+      229.0,
+      'climatiq_cached',
+      '2640',
+      'electronics/consumer-electronics/manufacturing',
+      [
+        "1. Map category 'audio_electronics' → ISIC4 code 2640",
+        '2. Cache hit: activity electronics/consumer-electronics/manufacturing, spend $229 USD',
+        '3. Cached emission factor: 0.1389 kg CO₂e per USD',
+        '4. Raw estimate: 229 × 0.1389 = 31.81 kg CO₂e',
+        '5. Apply US regional factor: ×1.0',
+        '6. Final estimate: 31.8 kg CO₂e (CI: ±5.1 kg)',
+      ],
+      [
+        'Li-ion battery manufacturing included',
+        'Polycarbonate casing included',
+        'Charging cable included in scope',
+      ],
+      0.81
+    ),
   },
   {
-    id: 's12', ts: now - 6 * DAY - 2 * HOUR, merchant: 'walmart',
-    title: "Hanes Men's ComfortSoft T-Shirt 6-Pack White",
-    category: 'apparel_tops', category_uncertain: false,
-    kg_total: 9.7, kg_ci_low: 7.8, kg_ci_high: 11.6, price_usd: 29.98,
-    data_source: 'climatiq_cached',
-    trace: mockTrace({
-      category: 'apparel_tops', price: 29.98, source: 'climatiq_cached',
-      isic4: '1410', activity: 'apparel/clothing-manufacturing',
-      steps: ['Cache hit', 'Factor 0.3235', 'Final 9.7 kg'],
-      assumptions: ['Cotton water excl', 'Bangladeshi origin'], score: 0.72
-    })
-  },
-  {
-    id: 's13', ts: now - 7 * DAY - 3 * HOUR, merchant: 'amazon',
-    title: 'Samsung Galaxy S24 Ultra 256GB Titanium Black',
-    category: 'smartphones', category_uncertain: false,
-    kg_total: 62.9, kg_ci_low: 53.2, kg_ci_high: 72.6, price_usd: 1199.0,
-    data_source: 'climatiq_fresh',
-    trace: mockTrace({
-      category: 'smartphones', price: 1199, source: 'climatiq_fresh',
-      isic4: '2630', activity: 'electronics/mobile-phones/manufacturing',
-      steps: ['Climatiq query', 'Factor 0.0525', 'Final 62.9 kg'],
-      assumptions: ['OLED mfg', 'Titanium frame'], score: 0.83
-    })
-  },
-  {
-    id: 's14', ts: now - 9 * DAY - 1.5 * HOUR, merchant: 'amazon',
-    title: 'JavaScript: The Good Parts by Douglas Crockford',
-    category: 'books', category_uncertain: false,
-    kg_total: 0.7, kg_ci_low: 0.5, kg_ci_high: 0.9, price_usd: 8.42,
-    data_source: 'climatiq_cached',
-    trace: mockTrace({
-      category: 'books', price: 8.42, source: 'climatiq_cached',
-      isic4: '5811', activity: 'media/book-publishing',
-      steps: ['Cache hit', 'Factor 0.0831', 'Final 0.7 kg'],
-      assumptions: ['Recycled paper assumed', 'Distribution incl'], score: 0.89
-    })
-  },
-  {
-    id: 's15', ts: now - 11 * DAY - 4 * HOUR, merchant: 'ebay',
-    title: 'Dell XPS 15 9530 Intel Core i9, 32GB RAM, 1TB SSD',
-    category: 'laptops', category_uncertain: false,
-    kg_total: 71.2, kg_ci_low: 60.8, kg_ci_high: 81.6, price_usd: 1849.0,
-    data_source: 'climatiq_fresh',
-    trace: mockTrace({
-      category: 'laptops', price: 1849, source: 'climatiq_fresh',
-      isic4: '2620', activity: 'electronics/computers/manufacturing',
-      steps: ['Climatiq query', 'Factor 0.0385', 'Final 71.2 kg'],
-      assumptions: ['SSD NAND fab', 'Aluminum chassis'], score: 0.8
-    })
-  },
-  {
-    id: 's16', ts: now - 13 * DAY - 2 * HOUR, merchant: 'amazon',
-    title: 'Anker 65W Fast Charger, USB-C Charging Block',
-    category: 'general', category_uncertain: true,
-    kg_total: 4.8, kg_ci_low: 3.3, kg_ci_high: 6.3, price_usd: 21.99,
+    id: 's12',
+    ts: daysAgo(5, -14400000),
+    merchant: 'amazon',
+    title: 'Kindle Paperwhite 16 GB — 6.8" Display',
+    category: 'general',
+    category_uncertain: true,
+    kg_total: 18.3,
+    kg_ci_low: 12.8,
+    kg_ci_high: 23.8,
+    price_usd: 139.99,
     data_source: 'local_fallback',
-    trace: mockTrace({
-      category: 'general', price: 21.99, source: 'local_fallback',
-      isic4: '2699', activity: 'manufacturing/other-products',
-      steps: ['Category ambiguous', 'Local fallback', 'Final 4.8 kg'],
-      assumptions: ['PCB mfg excluded', 'GaN tech newer'], score: 0.43
-    })
+    purchased: true,
+    trace: makeTrace(
+      'general',
+      139.99,
+      'local_fallback',
+      '2699',
+      'manufacturing/other-products',
+      [
+        "1. Category 'kindle/ereader' — borderline match between audio_electronics and books",
+        '2. Confidence below threshold (0.51) — falling back to local fallback',
+        '3. Apply general merchandise factor: 0.131 kg CO₂e per USD',
+        '4. Raw estimate: 139.99 × 0.131 = 18.34 kg CO₂e',
+        '5. Uncertainty penalty applied: CI ±30%',
+        '6. Final estimate: 18.3 kg CO₂e (CI: ±5.5 kg)',
+      ],
+      [
+        'E-ink display manufacturing included by proxy',
+        'Mixed product category penalizes confidence',
+        'Local model fallback',
+      ],
+      0.49
+    ),
   },
   {
-    id: 's17', ts: now - 16 * DAY - 2 * HOUR, merchant: 'amazon',
-    title: 'Patagonia Men\'s Better Sweater Fleece Jacket',
-    category: 'apparel_tops', category_uncertain: false,
-    kg_total: 14.8, kg_ci_low: 11.9, kg_ci_high: 17.7, price_usd: 149.0,
+    id: 's13',
+    ts: daysAgo(6, -7200000),
+    merchant: 'walmart',
+    title: "Hanes Men's ComfortSoft T-Shirt 6-Pack White",
+    category: 'apparel_tops',
+    category_uncertain: false,
+    kg_total: 9.7,
+    kg_ci_low: 7.8,
+    kg_ci_high: 11.6,
+    price_usd: 29.98,
     data_source: 'climatiq_cached',
-    trace: mockTrace({
-      category: 'apparel_tops', price: 149, source: 'climatiq_cached',
-      isic4: '1410', activity: 'apparel/clothing-manufacturing',
-      steps: ['Cache hit', 'Factor 0.0993', 'Final 14.8 kg'],
-      assumptions: ['Recycled poly 51%', 'No verified credit'], score: 0.75
-    })
+    purchased: true,
+    trace: makeTrace(
+      'apparel_tops',
+      29.98,
+      'climatiq_cached',
+      '1410',
+      'apparel/clothing-manufacturing',
+      [
+        "1. Map category 'apparel_tops' → ISIC4 code 1410",
+        '2. Cache hit: activity apparel/clothing-manufacturing, spend $29.98 USD',
+        '3. Cached emission factor: 0.3235 kg CO₂e per USD',
+        '4. Raw estimate: 29.98 × 0.3235 = 9.7 kg CO₂e',
+        '5. No regional adjustment (Bangladeshi origin assumed)',
+        '6. Final estimate: 9.7 kg CO₂e (CI: ±1.9 kg)',
+      ],
+      [
+        'Cotton farming water footprint not included',
+        'Dye process emissions per IPCC Tier 2',
+        'Pack of 6 treated as single unit',
+      ],
+      0.72
+    ),
   },
   {
-    id: 's18', ts: now - 18 * DAY - 1 * HOUR, merchant: 'amazon',
+    id: 's14',
+    ts: daysAgo(7, -10800000),
+    merchant: 'amazon',
+    title: 'The Lord of the Rings: 50th Anniversary Edition',
+    category: 'books',
+    category_uncertain: false,
+    kg_total: 2.7,
+    kg_ci_low: 2.1,
+    kg_ci_high: 3.3,
+    price_usd: 32.99,
+    data_source: 'climatiq_fresh',
+    trace: makeTrace(
+      'books',
+      32.99,
+      'climatiq_fresh',
+      '5811',
+      'media/book-publishing',
+      [
+        "1. Map category 'books' → ISIC4 code 5811",
+        '2. Query Climatiq activity media/book-publishing with spend $32.99 USD',
+        '3. Apply spend-based emission factor: 0.0818 kg CO₂e per USD',
+        '4. Raw estimate: 32.99 × 0.0818 = 2.7 kg CO₂e',
+        '5. Hardcover adds ~15% vs paperback — already factored into emission intensity',
+        '6. Final estimate: 2.7 kg CO₂e (CI: ±0.6 kg)',
+      ],
+      [
+        'Hardcover binding glue included',
+        'Box packaging from Amazon included',
+        'Paper from FSC-certified forest assumed',
+      ],
+      0.86
+    ),
+  },
+  {
+    id: 's15',
+    ts: daysAgo(7, -21600000),
+    merchant: 'target',
+    title: 'Maybelline New York Fit Me Matte Foundation',
+    category: 'beauty',
+    category_uncertain: false,
+    kg_total: 1.4,
+    kg_ci_low: 1.0,
+    kg_ci_high: 1.8,
+    price_usd: 9.99,
+    data_source: 'climatiq_cached',
+    purchased: true,
+    trace: makeTrace(
+      'beauty',
+      9.99,
+      'climatiq_cached',
+      '2042',
+      'manufacturing/cosmetics-toiletries',
+      [
+        "1. Map category 'beauty' → ISIC4 code 2042",
+        '2. Cache hit: activity manufacturing/cosmetics-toiletries, spend $9.99 USD',
+        '3. Cached emission factor: 0.1401 kg CO₂e per USD',
+        '4. Raw estimate: 9.99 × 0.1401 = 1.4 kg CO₂e',
+        '5. No regional adjustment',
+        '6. Final estimate: 1.4 kg CO₂e (CI: ±0.4 kg)',
+      ],
+      [
+        'Mica sourcing emissions included',
+        'Glass bottle excluded (plastic pump bottle)',
+        'Retail margin stripped before factor',
+      ],
+      0.65
+    ),
+  },
+  {
+    id: 's16',
+    ts: daysAgo(8, -3600000),
+    merchant: 'bestbuy',
+    title: 'Logitech MX Master 3S Wireless Mouse Graphite',
+    category: 'general',
+    category_uncertain: true,
+    kg_total: 5.4,
+    kg_ci_low: 3.8,
+    kg_ci_high: 7.0,
+    price_usd: 79.99,
+    data_source: 'local_fallback',
+    trace: makeTrace(
+      'general',
+      79.99,
+      'local_fallback',
+      '2699',
+      'manufacturing/other-products',
+      [
+        "1. Category 'computer_peripherals' — no direct ISIC4 match with high confidence",
+        '2. Nearest match: electronics (2640) confidence 0.55 — below threshold',
+        '3. Fallback: general merchandise local factor: 0.0675 kg CO₂e per USD',
+        '4. Raw estimate: 79.99 × 0.0675 = 5.4 kg CO₂e',
+        '5. Apply ±30% CI for low-confidence fallback',
+        '6. Final estimate: 5.4 kg CO₂e (CI: ±1.6 kg)',
+      ],
+      [
+        'Optical sensor manufacturing excluded from specific model',
+        'USB dongle included in scope',
+        'Packaging included by proxy',
+      ],
+      0.44
+    ),
+  },
+  {
+    id: 's17',
+    ts: daysAgo(9, -5400000),
+    merchant: 'amazon',
+    title: 'Samsung Galaxy S24 Ultra 256GB Titanium Black',
+    category: 'smartphones',
+    category_uncertain: false,
+    kg_total: 62.9,
+    kg_ci_low: 53.2,
+    kg_ci_high: 72.6,
+    price_usd: 1199.0,
+    data_source: 'climatiq_fresh',
+    trace: makeTrace(
+      'smartphones',
+      1199.0,
+      'climatiq_fresh',
+      '2630',
+      'electronics/mobile-phones/manufacturing',
+      [
+        "1. Map category 'smartphones' → ISIC4 code 2630",
+        '2. Query Climatiq activity electronics/mobile-phones/manufacturing with spend $1199 USD',
+        '3. Apply spend-based emission factor: 0.0525 kg CO₂e per USD',
+        '4. Raw estimate: 1199 × 0.0525 = 62.9 kg CO₂e',
+        '5. Apply US regional factor: ×1.0',
+        '6. Final estimate: 62.9 kg CO₂e (CI: ±9.7 kg)',
+      ],
+      [
+        'OLED display manufacturing included',
+        'Titanium frame alloy processing included',
+        'S Pen stylus in scope',
+      ],
+      0.83
+    ),
+  },
+  {
+    id: 's18',
+    ts: daysAgo(10, -7200000),
+    merchant: 'walmart',
+    title: 'New Balance 574 Core Pack Sneakers Grey',
+    category: 'footwear',
+    category_uncertain: false,
+    kg_total: 10.6,
+    kg_ci_low: 8.4,
+    kg_ci_high: 12.8,
+    price_usd: 74.99,
+    data_source: 'climatiq_cached',
+    purchased: true,
+    trace: makeTrace(
+      'footwear',
+      74.99,
+      'climatiq_cached',
+      '1520',
+      'apparel/footwear-manufacturing',
+      [
+        "1. Map category 'footwear' → ISIC4 code 1520",
+        '2. Cache hit: activity apparel/footwear-manufacturing, spend $74.99 USD',
+        '3. Cached emission factor: 0.1414 kg CO₂e per USD',
+        '4. Raw estimate: 74.99 × 0.1414 = 10.6 kg CO₂e',
+        '5. No regional adjustment',
+        '6. Final estimate: 10.6 kg CO₂e (CI: ±2.2 kg)',
+      ],
+      [
+        'Suede upper tanning process included',
+        'EVA midsole blowing agent CO₂ included',
+        'Shoelaces in scope',
+      ],
+      0.74
+    ),
+  },
+  {
+    id: 's19',
+    ts: daysAgo(11, -3600000),
+    merchant: 'amazon',
+    title: 'JavaScript: The Good Parts by Douglas Crockford',
+    category: 'books',
+    category_uncertain: false,
+    kg_total: 0.7,
+    kg_ci_low: 0.5,
+    kg_ci_high: 0.9,
+    price_usd: 8.42,
+    data_source: 'climatiq_cached',
+    trace: makeTrace(
+      'books',
+      8.42,
+      'climatiq_cached',
+      '5811',
+      'media/book-publishing',
+      [
+        "1. Map category 'books' → ISIC4 code 5811",
+        '2. Cache hit: activity media/book-publishing, spend $8.42 USD',
+        '3. Cached emission factor: 0.0831 kg CO₂e per USD',
+        '4. Raw estimate: 8.42 × 0.0831 = 0.7 kg CO₂e',
+        '5. Thin paperback — lower than avg weight per USD',
+        '6. Final estimate: 0.7 kg CO₂e (CI: ±0.2 kg)',
+      ],
+      [
+        'Recycled paper content assumed — no bonus applied (unverified)',
+        'Short print run increases per-unit emissions',
+        'Distribution last-mile included',
+      ],
+      0.89
+    ),
+  },
+  {
+    id: 's20',
+    ts: daysAgo(12, -14400000),
+    merchant: 'ebay',
+    title: 'Dell XPS 15 9530 Intel Core i9, 32GB RAM, 1TB SSD',
+    category: 'laptops',
+    category_uncertain: false,
+    kg_total: 71.2,
+    kg_ci_low: 60.8,
+    kg_ci_high: 81.6,
+    price_usd: 1849.0,
+    data_source: 'climatiq_fresh',
+    trace: makeTrace(
+      'laptops',
+      1849.0,
+      'climatiq_fresh',
+      '2620',
+      'electronics/computers/manufacturing',
+      [
+        "1. Map category 'laptops' → ISIC4 code 2620",
+        '2. Query Climatiq activity electronics/computers/manufacturing with spend $1849 USD',
+        '3. Apply spend-based emission factor: 0.0385 kg CO₂e per USD',
+        '4. Raw estimate: 1849 × 0.0385 = 71.19 kg CO₂e',
+        '5. Apply US regional factor: ×1.0',
+        '6. Final estimate: 71.2 kg CO₂e (CI: ±10.4 kg)',
+      ],
+      [
+        'SSD NAND flash fabrication included',
+        'Aluminum chassis alloy processing included',
+        'Pre-installed software excluded',
+      ],
+      0.8
+    ),
+  },
+  {
+    id: 's21',
+    ts: daysAgo(13, -7200000),
+    merchant: 'target',
+    title: 'Gillette Venus Razor + 4 Refill Blades',
+    category: 'beauty',
+    category_uncertain: false,
+    kg_total: 1.9,
+    kg_ci_low: 1.4,
+    kg_ci_high: 2.4,
+    price_usd: 15.49,
+    data_source: 'climatiq_cached',
+    purchased: true,
+    trace: makeTrace(
+      'beauty',
+      15.49,
+      'climatiq_cached',
+      '2042',
+      'manufacturing/cosmetics-toiletries',
+      [
+        "1. Map category 'beauty' → ISIC4 code 2042",
+        '2. Cache hit: activity manufacturing/cosmetics-toiletries, spend $15.49 USD',
+        '3. Cached emission factor: 0.1227 kg CO₂e per USD',
+        '4. Raw estimate: 15.49 × 0.1227 = 1.9 kg CO₂e',
+        '5. Steel blade manufacturing included in cosmetics/toiletries factor',
+        '6. Final estimate: 1.9 kg CO₂e (CI: ±0.5 kg)',
+      ],
+      [
+        'Stainless steel blade manufacturing included',
+        'Plastic handle polymer included',
+        'Packaging blister excluded',
+      ],
+      0.66
+    ),
+  },
+  {
+    id: 's22',
+    ts: daysAgo(14, -3600000),
+    merchant: 'amazon',
+    title: 'Anker 65W Fast Charger, USB-C Charging Block',
+    category: 'general',
+    category_uncertain: true,
+    kg_total: 4.8,
+    kg_ci_low: 3.3,
+    kg_ci_high: 6.3,
+    price_usd: 21.99,
+    data_source: 'local_fallback',
+    trace: makeTrace(
+      'general',
+      21.99,
+      'local_fallback',
+      '2699',
+      'manufacturing/other-products',
+      [
+        "1. Category 'phone_accessories' — ambiguous between electronics and general",
+        '2. Confidence 0.48 — below 0.6 threshold for API lookup',
+        '3. Fallback: general merchandise local factor: 0.218 kg CO₂e per USD',
+        '4. Raw estimate: 21.99 × 0.218 = 4.79 kg CO₂e',
+        '5. Apply ±31% CI for low-confidence',
+        '6. Final estimate: 4.8 kg CO₂e (CI: ±1.5 kg)',
+      ],
+      [
+        'PCB manufacturing excluded (no specific match)',
+        'GaN charger technology newer — limited emission data',
+        'Retail packaging included',
+      ],
+      0.43
+    ),
+  },
+  {
+    id: 's23',
+    ts: daysAgo(15, -10800000),
+    merchant: 'bestbuy',
+    title: 'Jabra Evolve2 85 Wireless Headset with ANC',
+    category: 'audio_electronics',
+    category_uncertain: false,
+    kg_total: 38.4,
+    kg_ci_low: 32.1,
+    kg_ci_high: 44.7,
+    price_usd: 299.0,
+    data_source: 'climatiq_fresh',
+    trace: makeTrace(
+      'audio_electronics',
+      299.0,
+      'climatiq_fresh',
+      '2640',
+      'electronics/consumer-electronics/manufacturing',
+      [
+        "1. Map category 'audio_electronics' → ISIC4 code 2640",
+        '2. Query Climatiq activity electronics/consumer-electronics/manufacturing with spend $299 USD',
+        '3. Apply spend-based emission factor: 0.1284 kg CO₂e per USD',
+        '4. Raw estimate: 299 × 0.1284 = 38.4 kg CO₂e',
+        '5. Apply US regional factor: ×1.0',
+        '6. Final estimate: 38.4 kg CO₂e (CI: ±6.3 kg)',
+      ],
+      [
+        'Business-grade durability construction included',
+        'Charging stand included in scope',
+        'Bluetooth module manufacturing included',
+      ],
+      0.79
+    ),
+  },
+  {
+    id: 's24',
+    ts: daysAgo(16, -7200000),
+    merchant: 'amazon',
+    title: "Patagonia Men's Better Sweater Fleece Jacket",
+    category: 'apparel_tops',
+    category_uncertain: false,
+    kg_total: 14.8,
+    kg_ci_low: 11.9,
+    kg_ci_high: 17.7,
+    price_usd: 149.0,
+    data_source: 'climatiq_cached',
+    purchased: true,
+    trace: makeTrace(
+      'apparel_tops',
+      149.0,
+      'climatiq_cached',
+      '1410',
+      'apparel/clothing-manufacturing',
+      [
+        "1. Map category 'apparel_tops' → ISIC4 code 1410",
+        '2. Cache hit: activity apparel/clothing-manufacturing, spend $149 USD',
+        '3. Cached emission factor: 0.0993 kg CO₂e per USD',
+        '4. Raw estimate: 149 × 0.0993 = 14.8 kg CO₂e',
+        '5. Recycled polyester content (51%) — no verified credit applied',
+        '6. Final estimate: 14.8 kg CO₂e (CI: ±2.9 kg)',
+      ],
+      [
+        'Fleece recycling process included in factor',
+        'Zipper hardware included',
+        'Hang tag and packaging minimal',
+      ],
+      0.75
+    ),
+  },
+  {
+    id: 's25',
+    ts: daysAgo(17, -5400000),
+    merchant: 'walmart',
+    title: 'Barilla Spaghetti 16 oz, Pack of 8',
+    category: 'food_packaged',
+    category_uncertain: false,
+    kg_total: 4.2,
+    kg_ci_low: 3.3,
+    kg_ci_high: 5.1,
+    price_usd: 13.28,
+    data_source: 'climatiq_fresh',
+    purchased: true,
+    trace: makeTrace(
+      'food_packaged',
+      13.28,
+      'climatiq_fresh',
+      '1079',
+      'food/packaged-food-processing',
+      [
+        "1. Map category 'food_packaged' → ISIC4 code 1079",
+        '2. Query Climatiq activity food/packaged-food-processing with spend $13.28 USD',
+        '3. Apply spend-based emission factor: 0.316 kg CO₂e per USD',
+        '4. Raw estimate: 13.28 × 0.316 = 4.2 kg CO₂e',
+        '5. Durum wheat cultivation methane emissions included',
+        '6. Final estimate: 4.2 kg CO₂e (CI: ±0.9 kg)',
+      ],
+      [
+        'Agricultural N₂O from fertilizer included',
+        'Cardboard packaging included',
+        'Italian origin — ocean freight included',
+      ],
+      0.72
+    ),
+  },
+  {
+    id: 's26',
+    ts: daysAgo(18, -3600000),
+    merchant: 'amazon',
     title: 'Adidas Ultraboost 23 Running Shoes M 10.5',
-    category: 'footwear', category_uncertain: false,
-    kg_total: 16.1, kg_ci_low: 12.9, kg_ci_high: 19.3, price_usd: 139.95,
+    category: 'footwear',
+    category_uncertain: false,
+    kg_total: 16.1,
+    kg_ci_low: 12.9,
+    kg_ci_high: 19.3,
+    price_usd: 139.95,
     data_source: 'climatiq_cached',
-    trace: mockTrace({
-      category: 'footwear', price: 139.95, source: 'climatiq_cached',
-      isic4: '1520', activity: 'apparel/footwear-manufacturing',
-      steps: ['Cache hit', 'Factor 0.1151', 'Final 16.1 kg'],
-      assumptions: ['Primeknit upper', 'Continental rubber'], score: 0.77
-    })
+    trace: makeTrace(
+      'footwear',
+      139.95,
+      'climatiq_cached',
+      '1520',
+      'apparel/footwear-manufacturing',
+      [
+        "1. Map category 'footwear' → ISIC4 code 1520",
+        '2. Cache hit: activity apparel/footwear-manufacturing, spend $139.95 USD',
+        '3. Cached emission factor: 0.1151 kg CO₂e per USD',
+        '4. Raw estimate: 139.95 × 0.1151 = 16.1 kg CO₂e',
+        '5. Boost midsole thermoplastic polyurethane included',
+        '6. Final estimate: 16.1 kg CO₂e (CI: ±3.2 kg)',
+      ],
+      [
+        'Primeknit upper yarn included',
+        'Continental rubber outsole included',
+        'Parley recycled ocean plastic unverified — no credit applied',
+      ],
+      0.77
+    ),
   },
   {
-    id: 's19', ts: now - 19 * DAY - 4 * HOUR, merchant: 'ebay',
+    id: 's27',
+    ts: daysAgo(19, -14400000),
+    merchant: 'ebay',
     title: 'Apple iPad Pro 11-inch M4 WiFi 256GB Space Black',
-    category: 'laptops', category_uncertain: false,
-    kg_total: 47.6, kg_ci_low: 40.2, kg_ci_high: 55.0, price_usd: 999.0,
+    category: 'laptops',
+    category_uncertain: false,
+    kg_total: 47.6,
+    kg_ci_low: 40.2,
+    kg_ci_high: 55.0,
+    price_usd: 999.0,
     data_source: 'climatiq_fresh',
-    trace: mockTrace({
-      category: 'laptops', price: 999, source: 'climatiq_fresh',
-      isic4: '2620', activity: 'electronics/computers/manufacturing',
-      steps: ['Climatiq query', 'Factor 0.0477', 'Final 47.6 kg'],
-      assumptions: ['OLED tandem', 'M4 3nm fab'], score: 0.76
-    })
+    trace: makeTrace(
+      'laptops',
+      999.0,
+      'climatiq_fresh',
+      '2620',
+      'electronics/computers/manufacturing',
+      [
+        "1. Map category 'laptops' → ISIC4 code 2620",
+        '2. Query Climatiq activity electronics/computers/manufacturing with spend $999 USD',
+        '3. Apply spend-based emission factor: 0.0477 kg CO₂e per USD',
+        '4. Raw estimate: 999 × 0.0477 = 47.67 kg CO₂e',
+        '5. Tablet classified under computers/manufacturing — same ISIC4',
+        '6. Final estimate: 47.6 kg CO₂e (CI: ±7.4 kg)',
+      ],
+      [
+        'OLED tandem display novel process — limited peer data, increases CI',
+        'M4 chip 3nm fab included',
+        'Smart connector and pencil port excluded',
+      ],
+      0.76
+    ),
   },
   {
-    id: 's20', ts: now - 20 * DAY - 5 * HOUR, merchant: 'bestbuy',
+    id: 's28',
+    ts: daysAgo(19, -25200000),
+    merchant: 'target',
+    title: 'CeraVe Moisturizing Cream 16oz for Normal to Dry Skin',
+    category: 'beauty',
+    category_uncertain: false,
+    kg_total: 1.1,
+    kg_ci_low: 0.8,
+    kg_ci_high: 1.4,
+    price_usd: 16.99,
+    data_source: 'climatiq_cached',
+    purchased: true,
+    trace: makeTrace(
+      'beauty',
+      16.99,
+      'climatiq_cached',
+      '2042',
+      'manufacturing/cosmetics-toiletries',
+      [
+        "1. Map category 'beauty' → ISIC4 code 2042",
+        '2. Cache hit: activity manufacturing/cosmetics-toiletries, spend $16.99 USD',
+        '3. Cached emission factor: 0.0647 kg CO₂e per USD',
+        '4. Raw estimate: 16.99 × 0.0647 = 1.1 kg CO₂e',
+        '5. Large plastic tub packaging included',
+        '6. Final estimate: 1.1 kg CO₂e (CI: ±0.3 kg)',
+      ],
+      [
+        'Ceramide synthesis pathway included',
+        'Tub vs pump — tub has 15% more plastic',
+        'Dermatologist-tested claim excluded from scope',
+      ],
+      0.68
+    ),
+  },
+  {
+    id: 's29',
+    ts: daysAgo(20, -7200000),
+    merchant: 'amazon',
+    title: 'Quaker Oats Old Fashioned Oatmeal 5 lb',
+    category: 'food_packaged',
+    category_uncertain: false,
+    kg_total: 5.6,
+    kg_ci_low: 4.4,
+    kg_ci_high: 6.8,
+    price_usd: 10.98,
+    data_source: 'climatiq_cached',
+    trace: makeTrace(
+      'food_packaged',
+      10.98,
+      'climatiq_cached',
+      '1079',
+      'food/packaged-food-processing',
+      [
+        "1. Map category 'food_packaged' → ISIC4 code 1079",
+        '2. Cache hit: activity food/packaged-food-processing, spend $10.98 USD',
+        '3. Cached emission factor: 0.510 kg CO₂e per USD',
+        '4. Raw estimate: 10.98 × 0.510 = 5.6 kg CO₂e',
+        '5. Oat cultivation N₂O emissions factored in',
+        '6. Final estimate: 5.6 kg CO₂e (CI: ±1.2 kg)',
+      ],
+      [
+        'Oat growing enteric fermentation excluded (non-ruminant)',
+        'Cardboard canister included',
+        'Milling energy at PepsiCo facility estimated',
+      ],
+      0.73
+    ),
+  },
+  {
+    id: 's30',
+    ts: daysAgo(20, -18000000),
+    merchant: 'bestbuy',
     title: 'Apple iPhone 16 128GB Black (Unlocked)',
-    category: 'smartphones', category_uncertain: false,
-    kg_total: 57.3, kg_ci_low: 48.4, kg_ci_high: 66.2, price_usd: 799.0,
+    category: 'smartphones',
+    category_uncertain: false,
+    kg_total: 57.3,
+    kg_ci_low: 48.4,
+    kg_ci_high: 66.2,
+    price_usd: 799.0,
     data_source: 'climatiq_fresh',
-    trace: mockTrace({
-      category: 'smartphones', price: 799, source: 'climatiq_fresh',
-      isic4: '2630', activity: 'electronics/mobile-phones/manufacturing',
-      steps: ['Climatiq query', 'Factor 0.0717', 'Final 57.3 kg'],
-      assumptions: ['A18 chip 3nm', 'Reduced packaging'], score: 0.85
-    })
+    purchased: true,
+    trace: makeTrace(
+      'smartphones',
+      799.0,
+      'climatiq_fresh',
+      '2630',
+      'electronics/mobile-phones/manufacturing',
+      [
+        "1. Map category 'smartphones' → ISIC4 code 2630",
+        '2. Query Climatiq activity electronics/mobile-phones/manufacturing with spend $799 USD',
+        '3. Apply spend-based emission factor: 0.0717 kg CO₂e per USD',
+        '4. Raw estimate: 799 × 0.0717 = 57.29 kg CO₂e',
+        '5. Apply US regional factor: ×1.0',
+        '6. Final estimate: 57.3 kg CO₂e (CI: ±8.9 kg)',
+      ],
+      [
+        'A18 chip TSMC 3nm process included',
+        'Ceramic Shield glass manufacturing included',
+        'Packaging reduced per Apple disclosures — verified',
+      ],
+      0.85
+    ),
+  },
+];
+
+// Seed audit ledger so section 06 (Activity Ledger) has content during the
+// standalone preview / fresh-install demo. Mirrors the events the service
+// worker actually emits in production: view_logged on every product page,
+// proxy_call when Climatiq is queried, purchase_confirmed when a Knot
+// transaction matches a logged view, settings_changed when the user edits
+// the allowlist, reset_all when the user wipes local storage.
+
+function isoAgo(n: number, offsetMs = 0): string {
+  return new Date(daysAgo(n, offsetMs)).toISOString();
+}
+
+export const SEED_AUDIT: AuditEntry[] = [
+  {
+    id: 1001,
+    event_type: 'view_logged',
+    timestamp: isoAgo(0, -1800000),
+    details: { view_id: 's01', merchant: 'amazon', category: 'audio_electronics', kg_total: 42.3 },
+  },
+  {
+    id: 1002,
+    event_type: 'proxy_call',
+    timestamp: isoAgo(0, -1810000),
+    details: { endpoint: 'climatiq.io/estimate', cache: 'miss', latency_ms: 412 },
+  },
+  {
+    id: 1003,
+    event_type: 'view_logged',
+    timestamp: isoAgo(0, -3600000),
+    details: { view_id: 's02', merchant: 'bestbuy', category: 'laptops', kg_total: 78.5 },
+  },
+  {
+    id: 1004,
+    event_type: 'purchase_confirmed',
+    timestamp: isoAgo(0, -3500000),
+    details: { view_id: 's02', knot_transaction_id: 'kt_2410ab7c' },
+  },
+  {
+    id: 1005,
+    event_type: 'view_logged',
+    timestamp: isoAgo(1, -7200000),
+    details: { view_id: 's03', merchant: 'walmart', category: 'audio_electronics', kg_total: 65.1 },
+  },
+  {
+    id: 1006,
+    event_type: 'view_logged',
+    timestamp: isoAgo(1, -14400000),
+    details: { view_id: 's04', merchant: 'amazon', category: 'smartphones', kg_total: 55.7 },
+  },
+  {
+    id: 1007,
+    event_type: 'purchase_confirmed',
+    timestamp: isoAgo(1, -10800000),
+    details: { view_id: 's04', knot_transaction_id: 'kt_241109e2' },
+  },
+  {
+    id: 1008,
+    event_type: 'proxy_call',
+    timestamp: isoAgo(2, -3500000),
+    details: { endpoint: 'climatiq.io/estimate', cache: 'hit', latency_ms: 18 },
+  },
+  {
+    id: 1009,
+    event_type: 'view_logged',
+    timestamp: isoAgo(2, -3600000),
+    details: { view_id: 's05', merchant: 'target', category: 'apparel_tops', kg_total: 8.1 },
+  },
+  {
+    id: 1010,
+    event_type: 'view_logged',
+    timestamp: isoAgo(3, -5400000),
+    details: { view_id: 's07', merchant: 'amazon', category: 'books', kg_total: 1.2 },
+  },
+  {
+    id: 1011,
+    event_type: 'settings_changed',
+    timestamp: isoAgo(3, -1800000),
+    details: { key: 'monthly_budget_kg', from: 80, to: 100 },
+  },
+  {
+    id: 1012,
+    event_type: 'view_logged',
+    timestamp: isoAgo(4, -7200000),
+    details: { view_id: 's09', merchant: 'target', category: 'food_packaged', kg_total: 3.4 },
+  },
+  {
+    id: 1013,
+    event_type: 'view_logged',
+    timestamp: isoAgo(4, -25200000),
+    details: { view_id: 's10', merchant: 'amazon', category: 'general', kg_total: 2.1 },
+  },
+  {
+    id: 1014,
+    event_type: 'proxy_call',
+    timestamp: isoAgo(5, -3700000),
+    details: { endpoint: 'climatiq.io/estimate', cache: 'fallback', latency_ms: 4 },
+  },
+  {
+    id: 1015,
+    event_type: 'view_logged',
+    timestamp: isoAgo(5, -14400000),
+    details: { view_id: 's12', merchant: 'amazon', category: 'general', kg_total: 18.3 },
+  },
+  {
+    id: 1016,
+    event_type: 'purchase_confirmed',
+    timestamp: isoAgo(5, -10000000),
+    details: { view_id: 's12', knot_transaction_id: 'kt_240d33f9' },
+  },
+  {
+    id: 1017,
+    event_type: 'view_logged',
+    timestamp: isoAgo(7, -10800000),
+    details: { view_id: 's14', merchant: 'amazon', category: 'books', kg_total: 2.7 },
+  },
+  {
+    id: 1018,
+    event_type: 'settings_changed',
+    timestamp: isoAgo(8, -3600000),
+    details: { key: 'allowlist', added: ['climatiq.io'] },
+  },
+  {
+    id: 1019,
+    event_type: 'view_logged',
+    timestamp: isoAgo(10, -7200000),
+    details: { view_id: 's18', merchant: 'walmart', category: 'footwear', kg_total: 10.6 },
+  },
+  {
+    id: 1020,
+    event_type: 'purchase_confirmed',
+    timestamp: isoAgo(10, -3600000),
+    details: { view_id: 's18', knot_transaction_id: 'kt_2408a14b' },
+  },
+];
+
+const synced = new Date(now - DAY).toISOString();
+
+export const SEED_SUBSCRIPTIONS: SubscriptionRow[] = [
+  {
+    id: 'seed-sub-hellofresh',
+    name: 'HelloFresh Meal Kit — 2 people, 3 meals/wk',
+    merchant_id: 42,
+    merchant_name: 'HelloFresh',
+    status: 'ACTIVE',
+    billing_cycle: 'WEEKLY',
+    next_billing_date: new Date(now + 6 * DAY).toISOString(),
+    is_cancellable: true,
+    price_total: '59.94',
+    price_currency: 'USD',
+    annual_usd: 3116.88,
+    kg_annual: 431,
+    synced_at: synced
+  },
+  {
+    id: 'seed-sub-netflix',
+    name: 'Netflix Standard with ads',
+    merchant_id: 14,
+    merchant_name: 'Netflix',
+    status: 'ACTIVE',
+    billing_cycle: 'MONTHLY',
+    next_billing_date: new Date(now + 18 * DAY).toISOString(),
+    is_cancellable: true,
+    price_total: '15.49',
+    price_currency: 'USD',
+    annual_usd: 185.88,
+    kg_annual: 22,
+    synced_at: synced
+  },
+  {
+    id: 'seed-sub-spotify',
+    name: 'Spotify Premium Individual',
+    merchant_id: 13,
+    merchant_name: 'Spotify',
+    status: 'ACTIVE',
+    billing_cycle: 'MONTHLY',
+    next_billing_date: new Date(now + 9 * DAY).toISOString(),
+    is_cancellable: true,
+    price_total: '12.99',
+    price_currency: 'USD',
+    annual_usd: 155.88,
+    kg_annual: 12,
+    synced_at: synced
+  },
+  {
+    id: 'seed-sub-verizon',
+    name: 'Verizon Unlimited Plus',
+    merchant_id: 31,
+    merchant_name: 'Verizon',
+    status: 'ACTIVE',
+    billing_cycle: 'MONTHLY',
+    next_billing_date: new Date(now + 22 * DAY).toISOString(),
+    is_cancellable: false,
+    price_total: '80.00',
+    price_currency: 'USD',
+    annual_usd: 960,
+    kg_annual: 173,
+    synced_at: synced
+  },
+  {
+    id: 'seed-sub-dsc',
+    name: 'Dollar Shave Club — Executive razor',
+    merchant_id: 55,
+    merchant_name: 'Dollar Shave Club',
+    status: 'CANCELLED',
+    billing_cycle: 'MONTHLY',
+    next_billing_date: null,
+    is_cancellable: false,
+    price_total: '9.00',
+    price_currency: 'USD',
+    annual_usd: 108,
+    kg_annual: 49,
+    synced_at: synced
   }
 ];

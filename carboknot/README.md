@@ -22,10 +22,11 @@ carboknot/
 
 ## Data-sharing posture
 
-Carboknot is **not** a zero-trust app. It is a **data-first carbon receipt with minimal disclosed sharing**. Two outbound calls exist, and both are user-visible:
+Carboknot is **not** a zero-trust app. It is a **data-first carbon receipt with minimal disclosed sharing**. Three outbound calls exist, and all are user-visible:
 
 1. **`/api/climatiq`** — on first view of a new `(category, price_bucket)` pair. We send only an ISIC4 classification code and a price; nothing else. Results are cached in IndexedDB and reused forever.
 2. **`/api/reason`** — only when the user clicks "Why is this lower carbon?" on an alternative. We send two product titles and two kg values to Dedalus GPT-5 for a two-sentence rationale.
+3. **`/api/k2/reason`** — only when the user expands the "Why this footprint?" section in the breakdown panel. We send the already-visible trace fields (title, price, category, kg_total, per-stage kg, confidence interval) to K2 Think V2 via the proxy. K2 narrates the breakdown in three sentences and **never** produces or revises the kg number — Climatiq + the local LCA engine remain the single source of truth. Falls back to a local explanation if K2 is unavailable.
 
 No titles, URLs, identity, or browsing history are transmitted for carbon lookups. Open DevTools' Network tab to verify.
 

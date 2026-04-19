@@ -4,11 +4,17 @@
   "version": "0.1.0",
   "description": "Zero-trust browser agent for on-device carbon accounting at the point of purchase.",
   "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "dev": "pnpm --filter carboknot-extension dev",
     "build": "pnpm --filter carboknot-extension build",
+    "build:web": "pnpm --filter carboknot-extension build:web",
+    "preview:web": "pnpm --filter carboknot-extension preview:web",
     "proxy": "pnpm --filter carboknot-proxy dev",
-    "test:engine": "node extension/src/engine/carbon.test.mjs"
+    "test:engine": "node extension/src/engine/carbon.test.mjs",
+    "test:extension": "node extension/src/extension.test.mjs"
   },
   "pnpm": {
     "onlyBuiltDependencies": ["esbuild"]

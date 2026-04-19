@@ -2,6 +2,15 @@
 @tailwind components;
 @tailwind utilities;
 
+/* =============================================================
+   CARBOKNOT DASHBOARD — editorial / poster aesthetic
+   ─────────────────────────────────────────────────────────────
+   Visual system ported from carbonknot-dashboard-main. The
+   underlying data hooks (useHistory, useCacheStats, useAuditLog)
+   and every Dexie / chrome.storage call are intentionally
+   untouched. Only the surface treatment changed.
+   ============================================================= */
+
 @layer base {
   :root {
     --background: 158 30% 3%;
@@ -10,20 +19,34 @@
     --card-foreground: 0 0% 98%;
     --popover: 160 25% 5%;
     --popover-foreground: 0 0% 98%;
-    --primary: 150 65% 42%;
+    --primary: 78 100% 62%;
     --primary-foreground: 0 0% 0%;
     --secondary: 0 0% 10%;
     --secondary-foreground: 0 0% 98%;
     --muted: 0 0% 11%;
     --muted-foreground: 0 0% 65%;
-    --accent: 150 60% 22%;
-    --accent-foreground: 142 70% 80%;
+    --accent: 78 100% 62%;
+    --accent-foreground: 158 30% 3%;
     --destructive: 0 62.8% 40%;
     --destructive-foreground: 0 0% 98%;
     --border: 160 18% 14%;
     --input: 160 18% 14%;
-    --ring: 150 65% 42%;
-    --radius: 0.875rem;
+    --ring: 78 100% 62%;
+    --radius: 0.125rem;
+
+    --ink: #e8efe9;
+    --ink-dim: #8a978d;
+    --ink-faint: #4a5550;
+    --acid: #b6ff3c;
+    --moss: #1f6b3f;
+    --olive: #4a5d2e;
+    --paper: #04080a;
+    --paper-2: #070d0a;
+    --paper-3: #0a110d;
+    --rule: #1c2620;
+
+    --font-inter: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   }
 
   * {
@@ -32,195 +55,742 @@
 
   html {
     color-scheme: dark;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-family: var(--font-inter);
   }
 
   body {
     @apply bg-background text-foreground antialiased;
-    background-color: #04080a;
+    background-color: var(--paper);
     background-image:
-      radial-gradient(ellipse 80% 50% at 50% -10%, rgba(26, 107, 74, 0.18), transparent 60%),
-      radial-gradient(ellipse 60% 40% at 100% 100%, rgba(74, 222, 128, 0.05), transparent 70%),
-      radial-gradient(ellipse 60% 40% at 0% 100%, rgba(26, 107, 74, 0.04), transparent 70%);
+      radial-gradient(ellipse 70% 40% at 50% -10%, rgba(182, 255, 60, 0.07), transparent 60%),
+      radial-gradient(ellipse 60% 40% at 100% 100%, rgba(31, 107, 63, 0.06), transparent 70%);
     background-attachment: fixed;
     min-height: 100vh;
     margin: 0;
+    font-family: var(--font-inter);
   }
 
-  ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-  }
-  ::-webkit-scrollbar-track {
-    background: #0a0d0c;
-  }
-  ::-webkit-scrollbar-thumb {
-    background: #1a3d2b;
-    border-radius: 4px;
-    border: 1px solid #04080a;
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    background: #2a6b4a;
-  }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: #0a0d0c; }
+  ::-webkit-scrollbar-thumb { background: #1a3d2b; border: 1px solid #04080a; }
+  ::-webkit-scrollbar-thumb:hover { background: #2a6b4a; }
 
-  ::selection {
-    background: rgba(74, 222, 128, 0.35);
-    color: #d1fadf;
-  }
+  ::selection { background: rgba(182, 255, 60, 0.35); color: #061410; }
 }
 
 @layer utilities {
-  .glow-green {
+  .text-balance { text-wrap: balance; }
+
+  /* ------------------------------------------------------------
+     EDITORIAL TILE SYSTEM
+     ------------------------------------------------------------ */
+  .tile {
+    position: relative;
+    background: var(--paper-2);
+    border: 1px solid var(--rule);
     box-shadow:
-      0 0 24px rgba(26, 107, 74, 0.35),
-      0 0 60px rgba(26, 107, 74, 0.12),
-      inset 0 1px 0 rgba(74, 222, 128, 0.06);
+      0 1px 0 rgba(255, 255, 255, 0.015) inset,
+      0 24px 48px -24px rgba(0, 0, 0, 0.6);
   }
-  .glow-green-text {
-    text-shadow: 0 0 14px rgba(74, 222, 128, 0.55);
+  .tile-flat {
+    position: relative;
+    background: var(--paper-2);
+    border: 1px solid var(--rule);
   }
-
-  .number-glow {
-    text-shadow: 0 0 18px rgba(74, 222, 128, 0.4);
-  }
-
-  .surface {
+  .tile-acid {
+    position: relative;
     background:
-      linear-gradient(180deg, rgba(26, 107, 74, 0.04) 0%, transparent 40%),
-      linear-gradient(180deg, #0a110d 0%, #07100b 100%);
-    border: 1px solid rgba(74, 222, 128, 0.08);
+      linear-gradient(180deg, rgba(182, 255, 60, 0.10) 0%, rgba(31, 107, 63, 0.04) 50%, transparent 100%),
+      var(--paper-2);
+    border: 1px solid rgba(182, 255, 60, 0.32);
     box-shadow:
-      0 1px 0 rgba(74, 222, 128, 0.04) inset,
-      0 24px 48px -16px rgba(0, 0, 0, 0.5),
-      0 0 0 1px rgba(255, 255, 255, 0.02);
+      0 0 0 1px rgba(182, 255, 60, 0.05) inset,
+      0 30px 60px -30px rgba(31, 107, 63, 0.6);
+    color: #d8ffb0;
+  }
+  .tile-ink {
+    position: relative;
+    background: #050907;
+    border: 1px solid var(--rule);
+  }
+  .tile-hero {
+    position: relative;
+    background:
+      radial-gradient(120% 80% at 100% 0%, rgba(182, 255, 60, 0.12), transparent 60%),
+      linear-gradient(180deg, #061410 0%, #04100a 100%);
+    border: 1px solid rgba(182, 255, 60, 0.22);
+  }
+  .tile-divider { border-top: 1px solid var(--rule); }
+  .tile-divider-acid { border-top: 1px solid rgba(182, 255, 60, 0.22); }
+
+  .corner-mark::before,
+  .corner-mark::after {
+    content: "";
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    border: 1px solid rgba(182, 255, 60, 0.55);
+    pointer-events: none;
+  }
+  .corner-mark::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+  .corner-mark::after  { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+
+  /* Back-compat: legacy components still using `surface` / `surface-accent`
+     get a faithful port to the new aesthetic so they keep working. */
+  .surface {
+    background: var(--paper-2);
+    border: 1px solid var(--rule);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.015) inset,
+      0 24px 48px -24px rgba(0, 0, 0, 0.6);
   }
   .surface-accent {
     background:
-      linear-gradient(180deg, rgba(74, 222, 128, 0.07) 0%, rgba(26, 107, 74, 0.02) 60%, transparent 100%),
-      linear-gradient(180deg, #061410 0%, #04100a 100%);
-    border: 1px solid rgba(74, 222, 128, 0.18);
+      linear-gradient(180deg, rgba(182, 255, 60, 0.10) 0%, rgba(31, 107, 63, 0.04) 50%, transparent 100%),
+      var(--paper-2);
+    border: 1px solid rgba(182, 255, 60, 0.32);
     box-shadow:
-      0 1px 0 rgba(74, 222, 128, 0.08) inset,
-      0 0 32px -8px rgba(26, 107, 74, 0.4),
-      0 24px 48px -16px rgba(0, 0, 0, 0.6);
+      0 0 0 1px rgba(182, 255, 60, 0.05) inset,
+      0 30px 60px -30px rgba(31, 107, 63, 0.6);
   }
 
+  /* ------------------------------------------------------------
+     TYPOGRAPHY
+     ------------------------------------------------------------ */
+  .display {
+    font-family: var(--font-inter);
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    line-height: 0.86;
+  }
+  .display-mono {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 0.9;
+    font-variant-numeric: tabular-nums;
+  }
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+  }
+  .eyebrow-acid {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: #b6ff3c;
+  }
+  .stencil {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .number-glow { text-shadow: 0 0 18px rgba(182, 255, 60, 0.35); }
+  .acid-glow   { text-shadow: 0 0 22px rgba(182, 255, 60, 0.45); }
+
+  /* ------------------------------------------------------------
+     BACKGROUND TEXTURES
+     ------------------------------------------------------------ */
   .grid-bg {
     background-image:
-      linear-gradient(rgba(74, 222, 128, 0.025) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(74, 222, 128, 0.025) 1px, transparent 1px);
-    background-size: 48px 48px;
+      linear-gradient(rgba(182, 255, 60, 0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(182, 255, 60, 0.025) 1px, transparent 1px);
+    background-size: 64px 64px;
     background-position: -1px -1px;
   }
 
-  .card-hover {
-    transition:
-      border-color 0.25s cubic-bezier(0.2, 0, 0.2, 1),
-      box-shadow 0.25s cubic-bezier(0.2, 0, 0.2, 1),
-      transform 0.2s cubic-bezier(0.2, 0, 0.2, 1);
-  }
-  .card-hover:hover {
-    border-color: rgba(74, 222, 128, 0.32);
-    box-shadow:
-      0 0 0 1px rgba(74, 222, 128, 0.12),
-      0 0 28px -8px rgba(26, 107, 74, 0.4),
-      0 32px 56px -16px rgba(0, 0, 0, 0.7);
-    transform: translateY(-2px);
+  .hatch {
+    background-image: repeating-linear-gradient(
+      45deg,
+      rgba(182, 255, 60, 0.06) 0,
+      rgba(182, 255, 60, 0.06) 1px,
+      transparent 1px,
+      transparent 8px
+    );
   }
 
-  .tab-active {
-    background: linear-gradient(180deg, rgba(74, 222, 128, 0.16), rgba(26, 107, 74, 0.08));
-    border-color: rgba(74, 222, 128, 0.42) !important;
-    color: #6ee7a7 !important;
-    box-shadow:
-      inset 0 1px 0 rgba(74, 222, 128, 0.18),
-      0 0 14px -2px rgba(74, 222, 128, 0.28);
+  .scanline {
+    background: repeating-linear-gradient(
+      0deg,
+      transparent 0,
+      transparent 2px,
+      rgba(0, 0, 0, 0.18) 2px,
+      rgba(0, 0, 0, 0.18) 3px
+    );
+    pointer-events: none;
   }
 
   .ring-divider {
-    background: linear-gradient(90deg, transparent, rgba(74, 222, 128, 0.32), transparent);
+    background: linear-gradient(90deg, transparent, rgba(182, 255, 60, 0.32), transparent);
     height: 1px;
   }
 
+  /* ------------------------------------------------------------
+     CHIPS / TAGS
+     ------------------------------------------------------------ */
   .chip {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 3px 10px;
-    border-radius: 999px;
-    font-size: 11px;
-    font-weight: 500;
-    letter-spacing: 0.02em;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.03);
-    color: rgba(255, 255, 255, 0.7);
+    padding: 3px 8px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border: 1px solid var(--rule);
+    background: var(--paper-3);
+    color: var(--ink-dim);
+  }
+  .chip-acid {
+    border-color: rgba(182, 255, 60, 0.4);
+    background: rgba(182, 255, 60, 0.08);
+    color: #d8ffb0;
+  }
+  .chip-warn {
+    border-color: rgba(245, 158, 11, 0.45);
+    background: rgba(245, 158, 11, 0.08);
+    color: #fcd34d;
   }
   .chip-accent {
-    border-color: rgba(74, 222, 128, 0.3);
-    background: rgba(74, 222, 128, 0.06);
-    color: #6ee7a7;
+    border-color: rgba(182, 255, 60, 0.4);
+    background: rgba(182, 255, 60, 0.08);
+    color: #d8ffb0;
   }
-}
 
-@keyframes pulse-green {
-  0%, 100% {
+  /* ------------------------------------------------------------
+     BLOCKY BUTTONS
+     ------------------------------------------------------------ */
+  .btn-block {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    border: 1px solid var(--rule);
+    background: var(--paper-2);
+    color: var(--ink-dim);
+    transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+    cursor: pointer;
+  }
+  .btn-block:hover {
+    color: #d8ffb0;
+    border-color: rgba(182, 255, 60, 0.5);
+    background: rgba(182, 255, 60, 0.04);
+  }
+  .btn-block-active {
+    color: #04080a;
+    background: #b6ff3c;
+    border-color: #b6ff3c;
+  }
+  .btn-block-active:hover {
+    color: #04080a;
+    background: #d6ff7a;
+    border-color: #d6ff7a;
+  }
+  .btn-block-sm {
+    padding: 6px 10px;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+  }
+
+  .btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+    border: 1px solid transparent;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+    cursor: pointer;
+  }
+  .btn-ghost:hover {
+    color: #d8ffb0;
+    border-color: rgba(182, 255, 60, 0.3);
+    background: rgba(182, 255, 60, 0.04);
+  }
+
+  /* ------------------------------------------------------------
+     BOTTOM DOCK NAV
+     ------------------------------------------------------------ */
+  .dock {
+    position: fixed;
+    left: 50%;
+    bottom: 18px;
+    transform: translate(-50%, 24px);
+    opacity: 0;
+    pointer-events: none;
+    z-index: 50;
+    display: inline-flex;
+    align-items: stretch;
+    border: 1px solid rgba(182, 255, 60, 0.35);
+    background: rgba(4, 8, 10, 0.85);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    box-shadow:
+      0 1px 0 rgba(182, 255, 60, 0.08) inset,
+      0 30px 60px -20px rgba(0, 0, 0, 0.7),
+      0 0 0 1px rgba(0, 0, 0, 0.4);
+    transition: opacity 0.25s ease, transform 0.25s ease;
+  }
+  .dock-visible {
     opacity: 1;
-    box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.6);
+    transform: translate(-50%, 0);
+    pointer-events: auto;
   }
-  50% {
-    opacity: 0.75;
-    box-shadow: 0 0 0 6px rgba(74, 222, 128, 0);
+
+  .dock-seg {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 2px;
+    padding: 8px 14px;
+    min-width: 88px;
+    border-right: 1px solid var(--rule);
+    color: var(--ink-dim);
+    font-family: var(--font-mono);
+    transition: background 0.15s ease, color 0.15s ease;
+    cursor: pointer;
+    user-select: none;
+    background: transparent;
   }
-}
-.pulse-green {
-  animation: pulse-green 2.4s ease-in-out infinite;
+  .dock-seg:last-child { border-right: 0; }
+  .dock-seg .code {
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    color: var(--ink-faint);
+  }
+  .dock-seg .label {
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-weight: 700;
+  }
+  .dock-seg:hover {
+    background: rgba(182, 255, 60, 0.06);
+    color: #d8ffb0;
+  }
+  .dock-seg-active,
+  .dock-seg-active:hover {
+    background: #b6ff3c;
+    color: #04080a;
+  }
+  .dock-seg-active .code  { color: rgba(4, 8, 10, 0.6); }
+  .dock-seg-active .label { color: #04080a; }
+
+  /* ------------------------------------------------------------
+     CAROUSEL — scroll-snap swipeable tile rail
+     ------------------------------------------------------------ */
+  .carousel-root {
+    position: relative;
+    width: 100%;
+  }
+  .carousel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+    min-height: 28px;
+  }
+  .carousel-eyebrow {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+  }
+  .carousel-arrows {
+    display: inline-flex;
+    gap: 6px;
+  }
+  .carousel-arrow {
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--rule);
+    background: var(--paper-2);
+    color: var(--ink-dim);
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+  .carousel-arrow:hover:not(:disabled) {
+    color: #d8ffb0;
+    border-color: rgba(182, 255, 60, 0.5);
+    background: rgba(182, 255, 60, 0.06);
+  }
+  .carousel-arrow:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+
+  .carousel-track {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 4px;
+  }
+  .carousel-track::-webkit-scrollbar {
+    display: none;
+  }
+  .carousel-slide {
+    flex-shrink: 0;
+    flex-grow: 0;
+    min-width: 0;
+    scroll-snap-align: start;
+    display: flex;
+  }
+  .carousel-slide > * {
+    width: 100%;
+  }
+
+  .carousel-dots {
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    margin-top: 12px;
+  }
+  .carousel-dot {
+    width: 18px;
+    height: 4px;
+    border: 0;
+    background: var(--rule);
+    cursor: pointer;
+    padding: 0;
+    transition: background 0.15s, width 0.2s;
+  }
+  .carousel-dot:hover {
+    background: rgba(182, 255, 60, 0.4);
+  }
+  .carousel-dot-active {
+    background: #b6ff3c;
+    width: 32px;
+    box-shadow: 0 0 10px rgba(182, 255, 60, 0.5);
+  }
+
+  /* ------------------------------------------------------------
+     CAROUSEL STAGE — wraps the track so we can absolutely position
+     overlay arrows next to the slides without breaking dot alignment.
+     ------------------------------------------------------------ */
+  .carousel-stage {
+    position: relative;
+  }
+
+  /* Soft circular overlay arrows that float on the left/right edges
+     of the slide. Used when a Carousel is rendered with overlayArrows. */
+  .carousel-overlay-arrow {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 5;
+    width: 44px;
+    height: 44px;
+    border-radius: 9999px;
+    border: 1px solid rgba(8, 30, 12, 0.18);
+    background: rgba(8, 30, 12, 0.10);
+    color: rgba(8, 30, 12, 0.55);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    transition: background 0.18s ease, color 0.18s ease,
+      border-color 0.18s ease, opacity 0.18s ease, transform 0.18s ease;
+  }
+  .carousel-overlay-arrow:hover:not(:disabled) {
+    background: rgba(8, 30, 12, 0.22);
+    color: #04140a;
+    border-color: rgba(8, 30, 12, 0.45);
+  }
+  .carousel-overlay-arrow:active:not(:disabled) {
+    transform: translateY(-50%) scale(0.94);
+  }
+  .carousel-overlay-arrow:disabled {
+    opacity: 0;
+    pointer-events: none;
+  }
+  .carousel-overlay-arrow-left {
+    left: 14px;
+  }
+  .carousel-overlay-arrow-right {
+    right: 14px;
+  }
+  @media (max-width: 639px) {
+    .carousel-overlay-arrow {
+      width: 36px;
+      height: 36px;
+    }
+    .carousel-overlay-arrow-left {
+      left: 8px;
+    }
+    .carousel-overlay-arrow-right {
+      right: 8px;
+    }
+  }
+
+  /* ------------------------------------------------------------
+     HERO CAROUSEL — full-bleed swipeable summary band (~60vh).
+     Dark forest tile by default (matches the dark dashboard theme).
+     Light theme override flips it to a lime paper tile further below.
+     ------------------------------------------------------------ */
+  .carousel-hero .carousel-track {
+    border-radius: 24px;
+  }
+  .hero-carousel-slide {
+    min-height: clamp(420px, 60vh, 720px);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    position: relative;
+    overflow: hidden;
+    border-radius: 24px;
+  }
+  .hero-carousel-slide .hero-display {
+    font-size: clamp(96px, 16vw, 220px);
+    line-height: 0.78;
+  }
+  .hero-carousel-slide .hero-display-md {
+    font-size: clamp(72px, 12vw, 160px);
+    line-height: 0.82;
+  }
+
+  /* ============================================================
+     LIGHT THEME — opt-in via [data-theme="light"] on <html>.
+     Lime paper page · dark forest tiles · black text on lime.
+     The hero carousel keeps its own lime tile (already !important).
+     ============================================================ */
+  :root[data-theme="light"] {
+    --paper: #d8ffb8;
+    --paper-2: #0a2510;
+    --paper-3: #0d2c14;
+    --rule: #1c4628;
+  }
+  [data-theme="light"] body {
+    background-color: #d8ffb8;
+    color: #04140a;
+    background-image:
+      radial-gradient(ellipse 70% 40% at 50% -10%, rgba(8, 30, 12, 0.10), transparent 60%),
+      radial-gradient(ellipse 60% 40% at 100% 100%, rgba(8, 30, 12, 0.08), transparent 70%);
+  }
+  [data-theme="light"] .grid-bg {
+    background-image:
+      linear-gradient(rgba(8, 30, 12, 0.10) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(8, 30, 12, 0.10) 1px, transparent 1px);
+  }
+
+  /* Tile palette flips: dark forest tiles glow against the lime paper. */
+  [data-theme="light"] .tile-acid {
+    background:
+      radial-gradient(120% 80% at 100% 0%, rgba(182, 255, 60, 0.10), transparent 60%),
+      linear-gradient(180deg, #0d2c14 0%, #061a0c 100%);
+    border: 1px solid rgba(182, 255, 60, 0.32);
+    box-shadow:
+      0 0 0 1px rgba(182, 255, 60, 0.05) inset,
+      0 30px 60px -30px rgba(31, 107, 63, 0.6);
+    color: #d8ffb0;
+  }
+  [data-theme="light"] .tile-ink {
+    background: #061a0c;
+  }
+  [data-theme="light"] .tile-hero {
+    background:
+      radial-gradient(120% 80% at 100% 0%, rgba(182, 255, 60, 0.12), transparent 60%),
+      linear-gradient(180deg, #0d2c14 0%, #061a0c 100%);
+    border: 1px solid rgba(182, 255, 60, 0.22);
+  }
+
+  /* Page-level (non-tile) text on the lime paper goes black. */
+  [data-theme="light"] [data-page-ink] { color: #04140a; }
+
+  /* Carousel chrome on lime paper. */
+  [data-theme="light"] .carousel-eyebrow { color: rgba(8, 30, 12, 0.65); }
+  [data-theme="light"] .carousel-arrow {
+    border-color: rgba(8, 30, 12, 0.28);
+    color: #04140a;
+  }
+  [data-theme="light"] .carousel-arrow:hover:not(:disabled) {
+    color: #04140a;
+    border-color: rgba(8, 30, 12, 0.55);
+    background: #b6ff3c;
+  }
+  [data-theme="light"] .carousel-dot {
+    background: rgba(8, 30, 12, 0.22);
+  }
+
+  /* Section headers (PosterHeader) sit on lime paper — flip ink. */
+  [data-theme="light"] [data-poster-index] { color: rgba(31, 107, 63, 0.40) !important; }
+  [data-theme="light"] [data-poster-kicker] { color: #1f6b3f !important; }
+  [data-theme="light"] [data-poster-title] { color: #04140a !important; }
+  [data-theme="light"] [data-poster-hint] { color: rgba(8, 30, 12, 0.6) !important; }
+
+  /* Hero CarboKnot wordmark sits on lime paper — flip to dark forest. */
+  [data-theme="light"] [data-hero-wordmark] { color: #04140a !important; }
+  [data-theme="light"] [data-hero-wordmark-accent] { color: #1f6b3f !important; }
+
+  /* ----------------------------------------------------------
+     LIGHT-THEME HERO CAROUSEL — single lime tile sitting on the
+     lime page. Inverse of the dark default: bright tile, dark ink.
+     ---------------------------------------------------------- */
+  [data-theme="light"] .hero-carousel-slide,
+  [data-theme="light"] .hero-carousel-slide.tile-hero {
+    background:
+      radial-gradient(120% 80% at 100% 0%, rgba(255, 255, 255, 0.45), transparent 55%),
+      linear-gradient(180deg, #e8ffb8 0%, #c8f56b 100%) !important;
+    border: 1px solid rgba(8, 30, 12, 0.18) !important;
+    color: #04140a !important;
+  }
+  [data-theme="light"] .hero-carousel-slide :is(.display, .display-mono) {
+    color: #04140a !important;
+  }
+  [data-theme="light"] .hero-carousel-slide :is(.eyebrow, .eyebrow-acid) {
+    color: #0a3d18 !important;
+  }
+  [data-theme="light"] .hero-carousel-slide :is(
+    [class*="text-zinc-50"],
+    [class*="text-zinc-100"],
+    [class*="text-zinc-200"]
+  ) {
+    color: #04140a !important;
+  }
+  [data-theme="light"] .hero-carousel-slide :is(
+    [class*="text-zinc-300"],
+    [class*="text-zinc-400"],
+    [class*="text-zinc-500"],
+    [class*="text-zinc-600"],
+    [class*="text-zinc-700"]
+  ) {
+    color: #1a4d28 !important;
+  }
+  [data-theme="light"] .hero-carousel-slide [class*="b6ff3c"],
+  [data-theme="light"] .hero-carousel-slide [class*="d8ffb0"] {
+    color: #0a3d18 !important;
+  }
+  [data-theme="light"] .hero-carousel-slide [class*="7d8a82"],
+  [data-theme="light"] .hero-carousel-slide [class*="3a4540"] {
+    color: #2d5a3a !important;
+  }
+  [data-theme="light"] .hero-carousel-slide .acid-glow {
+    text-shadow: none !important;
+  }
+  [data-theme="light"] .hero-carousel-slide .hatch {
+    opacity: 0.06 !important;
+  }
+  [data-theme="light"] .hero-carousel-slide :is(.chip, .chip-acid, .chip-warn) {
+    background: rgba(8, 30, 12, 0.08) !important;
+    border-color: rgba(8, 30, 12, 0.28) !important;
+    color: #04140a !important;
+  }
+  [data-theme="light"] .hero-carousel-slide :is(.chip, .chip-acid, .chip-warn) .tick {
+    background: #04140a !important;
+    box-shadow: 0 0 0 0 rgba(4, 20, 10, 0.55) !important;
+  }
+  [data-theme="light"] .hero-carousel-slide .btn-block {
+    background: rgba(255, 255, 255, 0.45) !important;
+    border-color: rgba(8, 30, 12, 0.28) !important;
+    color: #04140a !important;
+  }
+  [data-theme="light"] .hero-carousel-slide .btn-block:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.7) !important;
+    border-color: rgba(8, 30, 12, 0.45) !important;
+  }
+  [data-theme="light"] .hero-carousel-slide .btn-block-active {
+    background: #04140a !important;
+    color: #c8f56b !important;
+    border-color: #04140a !important;
+  }
+  [data-theme="light"] .hero-carousel-slide .btn-block-active:hover:not(:disabled) {
+    background: #0a2510 !important;
+  }
+  [data-theme="light"] .hero-carousel-slide [class*="border-y"],
+  [data-theme="light"] .hero-carousel-slide [class*="border-t"],
+  [data-theme="light"] .hero-carousel-slide [class*="border-b"],
+  [data-theme="light"] .hero-carousel-slide [class*="border-["],
+  [data-theme="light"] .hero-carousel-slide [class*="divide-"] > * + * {
+    border-color: rgba(8, 30, 12, 0.16) !important;
+  }
+
+  /* In dark mode the overlay arrows sit on a dark forest hero tile —
+     flip them to soft white-on-dark for visibility. */
+  :root:not([data-theme="light"]) .carousel-overlay-arrow {
+    border-color: rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(232, 239, 233, 0.75);
+  }
+  :root:not([data-theme="light"]) .carousel-overlay-arrow:hover:not(:disabled) {
+    background: rgba(182, 255, 60, 0.18);
+    color: #d8ffb0;
+    border-color: rgba(182, 255, 60, 0.45);
+  }
 }
 
-@keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
+/* =============================================================
+   ANIMATIONS
+   ============================================================= */
+
+@keyframes pulse-acid {
+  0%, 100% { opacity: 1;   box-shadow: 0 0 0 0 rgba(182, 255, 60, 0.55); }
+  50%      { opacity: 0.7; box-shadow: 0 0 0 8px rgba(182, 255, 60, 0); }
 }
-.shimmer {
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgba(74, 222, 128, 0.07) 50%,
-    transparent 100%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 3.5s infinite;
+.pulse-acid { animation: pulse-acid 2.4s ease-in-out infinite; }
+
+/* Back-compat alias for the previous emerald pulse name. */
+@keyframes pulse-green {
+  0%, 100% { opacity: 1;   box-shadow: 0 0 0 0 rgba(182, 255, 60, 0.55); }
+  50%      { opacity: 0.7; box-shadow: 0 0 0 8px rgba(182, 255, 60, 0); }
 }
+.pulse-green { animation: pulse-green 2.4s ease-in-out infinite; }
+
+@keyframes tick {
+  0%, 100% { opacity: 0.3; }
+  50%      { opacity: 1; }
+}
+.tick { animation: tick 1.6s ease-in-out infinite; }
 
 @keyframes fade-in-up {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
-.fade-in-up {
-  animation: fade-in-up 0.5s cubic-bezier(0.2, 0, 0.2, 1) forwards;
-}
+.fade-in-up         { animation: fade-in-up 0.5s cubic-bezier(0.2, 0, 0.2, 1) forwards; }
 .fade-in-up-delay-1 { animation-delay: 0.06s; opacity: 0; }
 .fade-in-up-delay-2 { animation-delay: 0.12s; opacity: 0; }
 .fade-in-up-delay-3 { animation-delay: 0.18s; opacity: 0; }
 .fade-in-up-delay-4 { animation-delay: 0.24s; opacity: 0; }
+.fade-in-up-delay-5 { animation-delay: 0.30s; opacity: 0; }
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+.shimmer {
+  background: linear-gradient(90deg, transparent 0%, rgba(182, 255, 60, 0.07) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: shimmer 3.5s infinite;
+}
 
 @keyframes glow-pulse {
-  0%, 100% { filter: drop-shadow(0 0 8px rgba(74, 222, 128, 0.55)); }
-  50% { filter: drop-shadow(0 0 18px rgba(74, 222, 128, 0.85)); }
+  0%, 100% { filter: drop-shadow(0 0 8px  rgba(182, 255, 60, 0.45)); }
+  50%      { filter: drop-shadow(0 0 18px rgba(182, 255, 60, 0.75)); }
 }
-.glow-ring {
-  animation: glow-pulse 3.5s ease-in-out infinite;
-}
-
-@keyframes tick {
-  0%, 100% { opacity: 0.3; }
-  50% { opacity: 1; }
-}
-.tick {
-  animation: tick 1.6s ease-in-out infinite;
-}
+.glow-ring { animation: glow-pulse 3.5s ease-in-out infinite; }

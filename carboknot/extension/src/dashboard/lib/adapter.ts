@@ -18,6 +18,7 @@ type DexieViewRow = {
   kg_total: number;
   trace: string;
   occurred_at: string;
+  purchased?: boolean;
 };
 
 const DEFAULT_CONFIDENCE_WIDTH = 0.2;
@@ -126,7 +127,8 @@ export function adaptViewRow(row: DexieViewRow): ViewRow {
     kg_ci_high: kgCiHigh,
     price_usd: row.price ?? 0,
     data_source: dataSource,
-    trace: JSON.stringify(normalizedTrace)
+    trace: JSON.stringify(normalizedTrace),
+    purchased: !!row.purchased
   };
 }
 

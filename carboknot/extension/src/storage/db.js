@@ -34,26 +34,30 @@ db.version(1).stores({
   audit_log: '++id, event_type, timestamp'
 });
 
-// v2 adds a key-value settings store. Used by the dashboard for the monthly
-// budget input, by the service worker for the Dedalus swarm cache-status
-// heartbeat (key 'swarm_status'), and for any future local preferences.
-// Rows shape: { key: string, value: any }.
+// v2 adds a key-value settings store.
 db.version(2).stores({
   views:     '++id, url, occurred_at, category, merchant',
   audit_log: '++id, event_type, timestamp',
   settings:  'key'
 });
 
-// v3 adds the Climatiq response cache. Keys are '<category>::<price_bucket>'
-// so nearby prices in the same category share a cache line and we stay well
-// under Climatiq's free-tier quota. Rows shape:
-//   { key, co2e_kg, emission_factor_id, emission_factor_name, cached_at }
-// The `&key` marker asserts uniqueness (tightening v2's implicit primary key).
+// v3 adds purchased confirmation fields to views.
+// purchased: true once a Knot transaction webhook confirms the item was bought.
+// knot_transaction_id: the Knot transaction ID for audit trail.
 db.version(3).stores({
-  views:          '++id, url, occurred_at, category, merchant',
-  audit_log:      '++id, event_type, timestamp',
-  settings:       '&key',
-  climatiq_cache: '&key, cached_at'
+  views:     '++id, url, occurred_at, category, merchant, purchased',
+  audit_log: '++id, event_type, timestamp',
+  settings:  'key'
+});
+
+// v4 adds the subscriptions store for Knot SubscriptionManager data.
+// Each row mirrors the enriched subscription object queued by the proxy,
+// with an added `kg_annual` carbon estimate and local `status` field.
+db.version(4).stores({
+  views:         '++id, url, occurred_at, category, merchant, purchased',
+  audit_log:     '++id, event_type, timestamp',
+  settings:      'key',
+  subscriptions: 'id, merchant_name, status, synced_at'
 });
 
 /**
@@ -111,19 +115,15 @@ export async function getHistory({ limit, sinceIso } = {}) {
 
 /**
  * Append an event to the local audit log. Never transmitted anywhere.
- * `details` is optional — when omitted, the row is just
- * `{ event_type, timestamp }` which is what the privacy-receipt counters
- * in the dashboard rely on.
  * @param {string} event_type
  * @param {Object} [details]
  */
 export async function logEvent(event_type, details) {
-  const row = {
+  return db.audit_log.add({
     event_type,
-    timestamp: new Date().toISOString()
-  };
-  if (details) row.details = { ...details };
-  return db.audit_log.add(row);
+    timestamp: new Date().toISOString(),
+    details: details ? { ...details } : undefined
+  });
 }
 
 /**
@@ -157,74 +157,111 @@ export async function putSetting(key, value) {
 }
 
 /**
+ * Mark a view row as a confirmed purchase from a Knot transaction webhook.
+ * @param {number} viewId
+ * @param {string} knotTransactionId
+ */
+export async function markPurchased(viewId, knotTransactionId) {
+  await db.views.update(viewId, {
+    purchased: true,
+    knot_transaction_id: knotTransactionId
+  });
+  await logEvent('purchase_confirmed', { view_id: viewId });
+}
+
+/**
+ * Return the single most recently viewed unpurchased row for a given merchant.
+ * @param {string} merchant
+ * @returns {Promise<ViewRow|null>}
+ */
+export async function getMostRecentUnpurchasedView(merchant) {
+  const rows = await db.views
+    .where('merchant').equals(merchant)
+    .filter((r) => !r.purchased)
+    .toArray();
+  if (rows.length === 0) return null;
+  rows.sort((a, b) => (b.occurred_at > a.occurred_at ? 1 : -1));
+  return rows[0];
+}
+
+/**
+ * Read all view rows that match a merchant, amount window, and time window.
+ * Used by the service worker to match Knot transactions to local browse history.
+ * @param {{ merchant: string, amount_usd: number, occurred_at: string }} tx
+ * @returns {Promise<Array>}
+ */
+export async function findMatchingViews({ merchant, amount_usd, occurred_at }) {
+  const txTime = Date.parse(occurred_at);
+  const WINDOW_MS = 2 * 60 * 60 * 1000; // ±2 hours
+  const rows = await db.views
+    .where('merchant').equals(merchant)
+    .filter((row) => {
+      if (row.purchased) return false;
+      const rowTime = Date.parse(row.occurred_at);
+      if (Math.abs(rowTime - txTime) > WINDOW_MS) return false;
+      // Transaction total includes tax/shipping so it may exceed page price.
+      // Accept if transaction is between 90% and 150% of the page price.
+      const ratio = amount_usd / row.price;
+      return ratio >= 0.9 && ratio <= 1.5;
+    })
+    .toArray();
+  // Return closest match first.
+  rows.sort((a, b) =>
+    Math.abs(Date.parse(a.occurred_at) - txTime) -
+    Math.abs(Date.parse(b.occurred_at) - txTime)
+  );
+  return rows;
+}
+
+/**
  * Wipe all local data. Used by the "Reset" action in Settings.
  */
 export async function resetAll() {
   await db.views.clear();
   await db.audit_log.clear();
   await db.settings.clear();
-  await db.climatiq_cache.clear();
+  await db.subscriptions.clear();
   await logEvent('reset_all', {});
 }
 
 /**
- * Read a single Climatiq cache entry by key, or `undefined` if missing.
- * @param {string} key
- * @returns {Promise<{key: string, co2e_kg: number, emission_factor_id: string, emission_factor_name?: string, cached_at: string} | undefined>}
+ * Upsert a subscription row received from the proxy.
+ * @param {Object} sub  Enriched subscription object from the proxy queue.
  */
-export async function getCacheEntry(key) {
-  return db.climatiq_cache.get(key);
+export async function upsertSubscription(sub) {
+  const synced_at = new Date().toISOString();
+  await db.subscriptions.put({
+    id: String(sub.id),
+    name: sub.name ?? '',
+    merchant_id: sub.merchant_id ?? 0,
+    merchant_name: sub.merchant_name ?? '',
+    status: sub.status ?? 'ACTIVE',
+    billing_cycle: sub.billing_cycle ?? 'MONTHLY',
+    next_billing_date: sub.next_billing_date ?? null,
+    is_cancellable: !!sub.is_cancellable,
+    price_total: String(sub.price_total ?? '0'),
+    price_currency: sub.price_currency ?? 'USD',
+    annual_usd: Number(sub.annual_usd) || 0,
+    kg_annual: Number(sub.kg_annual) || 0,
+    synced_at
+  });
+  await logEvent('subscription_synced', { subscription_id: String(sub.id), merchant: sub.merchant_name });
 }
 
 /**
- * Upsert a Climatiq cache entry. Caller owns the key + cached_at.
- * @param {{key: string, co2e_kg: number, emission_factor_id: string, emission_factor_name?: string, cached_at: string}} entry
- * @returns {Promise<string>} the key
+ * Read all subscriptions, newest synced first.
+ * @returns {Promise<Array>}
  */
-export async function putCacheEntry(entry) {
-  return db.climatiq_cache.put(entry);
+export async function getSubscriptions() {
+  return db.subscriptions.orderBy('synced_at').reverse().toArray();
 }
 
 /**
- * Bulk-upsert many Climatiq cache entries in a single Dexie transaction.
- * Used by the service worker's install-time warm-hydrate to load the
- * Dedalus Machine's pre-computed factor bundle into IndexedDB in one
- * round trip.
- *
- * @param {Array<{key: string, co2e_kg: number, emission_factor_id: string, emission_factor_name?: string, cached_at: string}>} entries
- * @returns {Promise<number>} the number of entries written
+ * Update a subscription's status after a cancellation result.
+ * @param {string} id
+ * @param {'CANCELLING' | 'CANCELLED' | 'CANCEL_FAILED'} status
  */
-export async function bulkPutCacheEntries(entries) {
-  if (!Array.isArray(entries) || entries.length === 0) return 0;
-  await db.climatiq_cache.bulkPut(entries);
-  return entries.length;
-}
-
-/**
- * Cache health numbers surfaced in the dashboard's "Privacy receipt".
- *
- * `hit_count_session` / `miss_count_session` count today's audit events
- * by string-prefix match on the ISO timestamp (`YYYY-MM-DD`). This keeps
- * the query cheap — the `audit_log.event_type` index does the selective
- * work, the date filter is a per-row substring check. No cross-day
- * aggregation is attempted here; the dashboard can layer that on later.
- *
- * @returns {Promise<{ total_entries: number, hit_count_session: number, miss_count_session: number }>}
- */
-export async function getClimatiqCacheStats() {
-  const todayPrefix = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
-
-  const [total_entries, hit_count_session, miss_count_session] = await Promise.all([
-    db.climatiq_cache.count(),
-    db.audit_log
-      .where('event_type').equals('climatiq_cache_hit')
-      .and((r) => typeof r.timestamp === 'string' && r.timestamp.startsWith(todayPrefix))
-      .count(),
-    db.audit_log
-      .where('event_type').equals('climatiq_cache_miss')
-      .and((r) => typeof r.timestamp === 'string' && r.timestamp.startsWith(todayPrefix))
-      .count()
-  ]);
-
-  return { total_entries, hit_count_session, miss_count_session };
+export async function updateSubscriptionStatus(id, status) {
+  await db.subscriptions.update(String(id), { status });
+  await logEvent('subscription_status_updated', { subscription_id: String(id), status });
 }

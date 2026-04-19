@@ -9,7 +9,19 @@ export default defineManifest({
   version: pkg.version,
   action: {
     default_popup: 'src/popup/popup.html',
-    default_title: 'Carboknot'
+    default_title: 'Carboknot',
+    default_icon: {
+      '16': 'icons/icon-16.png',
+      '32': 'icons/icon-32.png',
+      '48': 'icons/icon-48.png',
+      '128': 'icons/icon-128.png'
+    }
+  },
+  icons: {
+    '16': 'icons/icon-16.png',
+    '32': 'icons/icon-32.png',
+    '48': 'icons/icon-48.png',
+    '128': 'icons/icon-128.png'
   },
   permissions: ['storage', 'alarms'],
   host_permissions: [

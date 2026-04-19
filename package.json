@@ -1,0 +1,8 @@
+{
+  "name": "carboknot-root",
+  "private": true,
+  "description": "Repo-root package.json so Vercel picks up the Node version. Real workspace lives in ./carboknot.",
+  "engines": {
+    "node": "22.x"
+  }
+}
