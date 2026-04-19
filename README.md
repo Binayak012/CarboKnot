@@ -1,64 +1,67 @@
 # 🌱 CarboKnot
 
-> **See the carbon cost of everything you buy — and do something about it.**
+> **Zero-trust browser agent for on-device carbon accounting at the point of purchase.**
 
-CarboKnot is a full-lifecycle carbon footprint tracker for your shopping habits. It intercepts purchases at the moment of decision via a browser extension, captures your full transaction history through Knot's API, and gives you a unified dashboard to reflect on your footprint and take real action — offsetting emissions, swapping to greener alternatives, and canceling high-carbon subscriptions.
+CarboKnot is a privacy-first carbon footprint tracker for your shopping. The carbon engine runs entirely inside your browser — your purchase data never leaves your device. It intercepts products before you buy, calculates their CO₂e footprint locally, surfaces greener alternatives powered by K2 Think V2 reasoning, and connects to your full purchase history via Knot's API to give you a unified picture of your shopping emissions.
 
 ---
 
 ## 🏆 Built at HackPrinceton Spring 2026
 
-**Track:** Environment & Sustainability  
-**Sponsors Used:** Knot API · K2 Think V2 · Google Gemini · Dedalus · Orchid · Climatiq
+**Track:** Environment & Sustainability
+
+**Sponsors Utilized:** Knot API · K2 Think V2 · Google Gemini · Dedalus · Orchid · Climatiq
 
 ---
 
 ## ✨ Features
 
-- **🔴 Real-time carbon badges** — Browser extension injects CO₂e estimates directly onto Amazon product pages before you buy
-- **📦 Full purchase history tracking** — Knot's TransactionLink captures completed transactions across Amazon, Walmart, Target, and more via webhooks
-- **🔁 Subscription carbon auditing** — Knot's SubManager surfaces the annual carbon cost of recurring services (HelloFresh, Dollar Shave Club, etc.)
-- **🤖 AI-powered reasoning** — K2 Think V2 explains *why* a product has a high footprint and *why* the suggested alternative is greener, using advanced chain-of-thought reasoning
-- **🌿 Greener alternative suggestions** — Every purchase gets a lower-carbon swap recommendation
-- **⚡ One-click actions** — Offset emissions via verified providers, swap products via Knot's AgenticShopping, or cancel high-carbon subscriptions
-- **📊 Unified dashboard** — Orchid-powered UI shows your footprint over time, by category, and with month-over-month trends
+- **🔒 On-device carbon engine** — Carbon calculations run locally inside the extension. No purchase data is sent to external servers without your consent (zero-trust architecture)
+- **🔴 Real-time carbon badges** — CO₂e estimates injected directly onto Amazon product pages before you click Buy Now
+- **📦 Full purchase history** — Knot's TransactionLink captures transactions across Amazon, Walmart, Target, and more via webhooks
+- **🔁 Subscription auditing** — Knot's SubManager surfaces the annual carbon cost of recurring services
+- **🤖 AI-powered reasoning** — K2 Think V2 explains *why* a product has a high footprint and *why* the suggested alternative is greener, using chain-of-thought reasoning
+- **🌿 Greener alternatives** — Every purchase gets a lower-carbon swap suggestion
+- **⚡ One-click action** — Offset, swap via Knot's AgenticShopping, or cancel high-carbon subscriptions
+- **📊 Unified dashboard** — Orchid-powered UI shows your full footprint, category breakdown, and trends
 
 ---
 
 ## 🏗️ Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                   DATA SOURCES                       │
-│  ┌──────────────────┐    ┌────────────────────────┐  │
-│  │ Browser Extension│    │       Knot API         │  │
-│  │ (Amazon DOM)     │    │ (Webhooks + SubManager)│  │
-│  └────────┬─────────┘    └───────────┬────────────┘  │
-└───────────┼──────────────────────────┼───────────────┘
-            │                          │
-            ▼                          ▼
-┌─────────────────────────────────────────────────────┐
-│              BACKEND API (TypeScript / Dedalus)      │
-│  Auth → Categorization → Carbon Calc → Reasoning    │
-│                          │                          │
-│              ┌───────────┴────────────┐             │
-│              ▼                        ▼             │
-│        Climatiq API           K2 Think V2           │
-│        (CO₂e numbers)    (Why reasoning layer)      │
-└──────────────────────────┬──────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                    BROWSER (Zero-Trust)                       │
+│                                                               │
+│   ┌──────────────────────────────────────────────────────┐   │
+│   │              carboknot-extension                      │   │
+│   │                                                       │   │
+│   │  DOM Scraper → Carbon Engine → Badge Injector         │   │
+│   │       (on-device · no data leaves browser)            │   │
+│   └──────────────────────┬────────────────────────────────┘   │
+└─────────────────────────┼─────────────────────────────────────┘
+                           │ (opt-in only)
+                           ▼
+┌──────────────────────────────────────────────────────────────┐
+│                   carboknot-proxy                             │
+│   Lightweight middleware · routes to external APIs            │
+│                                                               │
+│   ┌─────────────┐   ┌─────────────┐   ┌──────────────────┐  │
+│   │ Climatiq    │   │ K2 Think V2 │   │   Knot API       │  │
+│   │ (CO₂e data) │   │ (Reasoning) │   │ (Transactions +  │  │
+│   └─────────────┘   └─────────────┘   │  SubManager +    │  │
+│                                        │  AgenticShop)    │  │
+│                                        └──────────────────┘  │
+└──────────────────────────────────────────────────────────────┘
                            │
                            ▼
-┌─────────────────────────────────────────────────────┐
-│              UNIFIED DATABASE                        │
-│  purchases · subscriptions · alternatives · offsets  │
-└──────────────────────────┬──────────────────────────┘
-                           │
-                           ▼
-┌─────────────────────────────────────────────────────┐
-│           OUTPUT & ACTION LAYER (Orchid)             │
-│  Dashboard · Offset · Swap (AgenticShopping) · Cancel│
-└─────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│              UNIFIED DATABASE + ORCHID DASHBOARD              │
+│  purchases · subscriptions · alternatives · offsets           │
+└──────────────────────────────────────────────────────────────┘
 ```
+
+**Key principle:** The carbon engine (`extension/src/engine/`) is a tested, self-contained module that runs on-device. External API calls are opt-in and routed through the proxy only when richer data is needed.
 
 ---
 
@@ -67,17 +70,21 @@ CarboKnot is a full-lifecycle carbon footprint tracker for your shopping habits.
 | Layer | Technology |
 |---|---|
 | Language | TypeScript / JavaScript |
-| Browser Extension | JavaScript (content script, DOM injection) |
-| Backend API | TypeScript / Node.js |
-| Hosting | Dedalus |
+| Package Manager | pnpm 10.33.0 (workspaces monorepo) |
+| Node Version | ≥ 20.0.0 |
+| Bundler | esbuild |
+| Browser Extension | `carboknot-extension` package |
+| Proxy / Middleware | `carboknot-proxy` package |
+| Carbon Engine | On-device TypeScript module (unit tested) |
 | Transaction Data | Knot TransactionLink (webhooks) |
 | Subscription Data | Knot SubManager |
 | Agentic Shopping | Knot AgenticShopping |
-| Carbon Calculation | Climatiq API |
+| Carbon Data | Climatiq API |
 | Carbon Reasoning | K2 Think V2 (LLM360) |
-| Generic AI / Categorization | Google Gemini API |
+| Generic AI | Google Gemini API |
 | Dashboard UI | Orchid |
-| MCP Integration | `.mcp.json` |
+| Hosting | Dedalus |
+| MCP Integration | Knot Docs MCP (`docs.knotapi.com/mcp`) |
 
 ---
 
@@ -85,7 +92,8 @@ CarboKnot is a full-lifecycle carbon footprint tracker for your shopping habits.
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js ≥ 20.0.0
+- pnpm 10.33.0 → `npm install -g pnpm@10.33.0`
 - API keys for: Knot, Climatiq, K2 Think V2, Gemini, Dedalus
 
 ### Installation
@@ -95,13 +103,13 @@ CarboKnot is a full-lifecycle carbon footprint tracker for your shopping habits.
 git clone https://github.com/Binayak012/CarboKnot.git
 cd CarboKnot
 
-# Install dependencies
-cd carboknot && npm install
+# Install all workspace dependencies
+pnpm install
 ```
 
 ### Environment Variables
 
-Create a `.env` file in the `carboknot/` directory:
+Create a `.env` file in the root:
 
 ```env
 # Knot API
@@ -120,18 +128,39 @@ GEMINI_API_KEY=your_gemini_key
 DEDALUS_API_KEY=your_dedalus_key
 ```
 
-### Running the App
+### Development
 
 ```bash
-npm run dev
+# Run the browser extension in dev mode
+pnpm dev
+
+# Run the proxy server
+pnpm proxy
+
+# Build the extension
+pnpm build
+
+# Build and preview the web version
+pnpm build:web && pnpm preview:web
 ```
 
-### Loading the Browser Extension
+### Running Tests
 
-1. Open Chrome and navigate to `chrome://extensions/`
-2. Enable **Developer Mode**
-3. Click **Load unpacked** and select the extension folder
-4. Navigate to any Amazon product page to see the carbon badge in action
+```bash
+# Test the on-device carbon engine
+pnpm test:engine
+
+# Test the full extension
+pnpm test:extension
+```
+
+### Loading the Extension in Chrome
+
+1. Run `pnpm build` to produce the extension bundle
+2. Open Chrome → `chrome://extensions/`
+3. Enable **Developer Mode**
+4. Click **Load unpacked** → select the extension output folder
+5. Visit any Amazon product page to see the carbon badge
 
 ---
 
@@ -139,38 +168,39 @@ npm run dev
 
 ### The Full Loop
 
-1. **Browse** — User visits an Amazon product page. The extension reads the product title and price from the DOM and calls the backend.
-2. **Calculate** — Backend queries Climatiq for a CO₂e estimate.
-3. **Reason** — K2 Think V2 explains *why* the product has that footprint and suggests a greener alternative with a chain-of-thought explanation.
-4. **Badge** — Extension injects a carbon badge next to the price showing the footprint and swap suggestion.
-5. **Buy** — If the user purchases anyway, Knot's webhook fires and the transaction is saved to the unified database.
-6. **Reflect** — The Orchid dashboard shows the user's cumulative footprint, top-emitting categories, and subscription carbon costs.
-7. **Act** — User can offset emissions, trigger an automatic product swap via Knot's AgenticShopping, or cancel a high-carbon subscription.
+1. **Browse** — Extension detects an Amazon product page and reads the product title and price from the DOM
+2. **Calculate (on-device)** — The local carbon engine estimates CO₂e from bundled category benchmarks — instant, no network call needed
+3. **Enrich (opt-in)** — The proxy calls Climatiq for a precise number and K2 Think V2 for a chain-of-thought explanation
+4. **Badge** — Carbon badge injected next to the price with footprint, confidence, and a greener swap suggestion
+5. **Buy** — Knot's webhook captures the completed transaction, saved to the unified database
+6. **Reflect** — Orchid dashboard shows cumulative footprint, category breakdown, and subscription emissions
+7. **Act** — One-click to offset, swap via Knot AgenticShopping, or cancel a subscription
 
-### Carbon + Reasoning Pipeline
+### Carbon Pipeline
 
 ```
-Product Name + Price + Merchant
+Amazon Product Page (DOM)
         │
         ▼
-  Climatiq API ──► CO₂e number (kg)
+On-device Carbon Engine  ←── bundled category benchmarks
         │
-        ▼
-  K2 Think V2 ──► Why it's high + Why alternative is lower
+        ├── fast path: local estimate, instant badge
         │
-        ▼
-  Saved to DB + Shown in badge/dashboard
+        └── enriched path (opt-in):
+                ├── Climatiq  → precise CO₂e number
+                └── K2 Think V2 → reasoning explanation
+                        │
+                        ▼
+                   Badge + Dashboard
 ```
 
 ### K2 Think V2 Reasoning Example
 
-For a product like *"Gillette Fusion5 Razor Cartridges (8-pack)"*, K2 Think V2 generates:
-
 ```json
 {
-  "why_original_high": "Plastic razor cartridges require petroleum-based manufacturing and generate significant non-recyclable waste.",
-  "why_alternative_lower": "A stainless steel safety razor is manufactured once and uses recyclable blades, drastically reducing lifetime waste and emissions.",
-  "lifecycle_note": "The safety razor's higher upfront manufacturing carbon is offset within 2-3 months of use."
+  "why_original_high": "Plastic razor cartridges require petroleum-based manufacturing and create non-recyclable waste.",
+  "why_alternative_lower": "A stainless safety razor is made once; recyclable blades cut lifetime emissions by 70%.",
+  "lifecycle_note": "The safety razor's higher upfront carbon is offset within 2–3 months of use."
 }
 ```
 
@@ -179,42 +209,38 @@ For a product like *"Gillette Fusion5 Razor Cartridges (8-pack)"*, K2 Think V2 g
 ## 📁 Project Structure
 
 ```
-CarboKnot/
-├── carboknot/           # Main application code
-│   ├── src/             # TypeScript source files
-│   └── package.json
-├── config/              # App configuration
-├── docs/                # Documentation
-├── .mcp.json            # MCP server integration config
-├── .gemini/             # Gemini AI assistant config
-├── .gitignore
+CarboKnot/                        ← pnpm monorepo root
+├── extension/                    ← carboknot-extension package
+│   └── src/
+│       ├── engine/
+│       │   ├── carbon.ts         ← on-device carbon engine
+│       │   └── carbon.test.mjs   ← engine unit tests
+│       └── extension.test.mjs    ← integration tests
+├── proxy/                        ← carboknot-proxy package
+├── config/                       ← shared configuration
+├── docs/                         ← documentation
+├── .mcp.json                     ← Knot Docs MCP server config
+├── opencode.json
 └── README.md
 ```
-
-> **Note:** Update this structure to reflect your actual source layout as you build.
 
 ---
 
 ## 🌍 Impact
 
-CarboKnot makes the invisible visible. The average American generates **~16 tonnes of CO₂** per year, with a significant portion coming from consumer goods. By surfacing carbon costs at the moment of purchase and making greener alternatives one click away, CarboKnot turns passive awareness into active behavior change.
+The average American generates **~16 tonnes of CO₂** per year, with a major share from consumer goods. CarboKnot is the first tool to surface that cost at the exact moment of decision — without requiring you to trust a server with your purchase data.
 
-**Key stats our dashboard surfaces:**
-- Your top 3 carbon-emitting product categories
-- Monthly CO₂e trend (are you improving?)
-- Annual subscription carbon cost
-- Total CO₂e offset through the platform
+**Zero-trust means:** your shopping stays on your device. Carbon calculation is instant, local, and private by default. External enrichment is opt-in.
 
 ---
 
 ## 🔮 What's Next
 
-- Expand beyond Amazon to all Knot-supported merchants
-- Smarter alternative matching using product embeddings
+- Expand merchant coverage to all Knot-supported retailers beyond Amazon
+- Product embedding-based alternative matching for more precise swap suggestions
 - Household/team mode for collective accountability
 - Monthly carbon budget setting with nudge alerts
-- Mobile app with receipt scanning via Gemini Vision
-- B2B sustainability reporting for SMEs
+- Mobile receipt scanning via Gemini Vision
 
 ---
 
@@ -222,7 +248,8 @@ CarboKnot makes the invisible visible. The average American generates **~16 tonn
 
 Built with 💚 at HackPrinceton Spring 2026.
 
-<!-- TODO: Add team member names and GitHub handles -->
+Team Members (in alphabetical order): Anshuraj Sedai, Binayak Subedi, Pranish Uprety, Rahul Mandal
+<!-- Add team member names and GitHub handles here -->
 
 ---
 
@@ -232,17 +259,19 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 ---
 
-## 🙏 Acknowledgements & Credits
+## 🙏 Credits & Acknowledgements
 
-This project was built during HackPrinceton Spring 2026 using the following third-party services and frameworks. All significant application logic, architecture, and integration code was written by our team during the hackathon.
+All application logic, the on-device carbon engine, the monorepo architecture, and all API integrations were written by our team during HackPrinceton Spring 2026. The following third-party tools and services were used:
 
 | Tool | Role | Link |
 |---|---|---|
-| Knot API | Transaction linking, SubManager, AgenticShopping | [knotapi.com](https://knotapi.com) |
-| Climatiq | Carbon emissions calculation | [climatiq.io](https://climatiq.io) |
-| K2 Think V2 / LLM360 | Advanced reasoning model for carbon explanations | [llm360.ai](https://llm360.ai) |
-| Google Gemini | Product categorization and generative AI | [ai.google.dev](https://ai.google.dev) |
-| Dedalus | Backend hosting and agent infrastructure | [dedaluslabs.ai](https://dedaluslabs.ai) |
-| Orchid | Dashboard UI framework | [orchid.com](https://orchid.com) |
+| Knot API | TransactionLink, SubManager, AgenticShopping | [knotapi.com](https://knotapi.com) |
+| Climatiq | Carbon emissions data | [climatiq.io](https://climatiq.io) |
+| K2 Think V2 / LLM360 | Chain-of-thought carbon reasoning | [llm360.ai](https://llm360.ai) |
+| Google Gemini | Categorization and generative AI | [ai.google.dev](https://ai.google.dev) |
+| Dedalus | Proxy hosting | [dedaluslabs.ai](https://dedaluslabs.ai) |
+| Orchid | Dashboard UI | [orchid.com](https://orchid.com) |
+| esbuild | Extension bundler | [esbuild.github.io](https://esbuild.github.io) |
+| pnpm | Monorepo package manager | [pnpm.io](https://pnpm.io) |
 
 HackPrinceton Spring 2026 organizers, mentors, and sponsors.
