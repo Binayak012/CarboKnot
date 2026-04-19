@@ -64,6 +64,7 @@ import { useAuditLog } from '@/dashboard/hooks/useAuditLog';
 import { useSubscriptions } from '@/dashboard/hooks/useSubscriptions';
 import { TraceDrawer } from '@/dashboard/components/TraceDrawer';
 import { SettingsModal } from '@/dashboard/components/SettingsModal';
+import { Carousel } from '@/dashboard/components/Carousel';
 import type { ViewRow, Trace, SubscriptionRow } from '@/dashboard/lib/types';
 import {
   formatRelativeTime,
@@ -204,6 +205,7 @@ const SECTIONS = [
   { id: 'subscriptions', code: '09', label: 'Subs' }
 ] as const;
 
+
 const AUDIT_EVENT_LABEL: Record<string, string> = {
   view_logged: 'Product view',
   swarm_status_refreshed: 'Swarm status',
@@ -265,23 +267,38 @@ function describeAuditDetails(
   return '—';
 }
 
-function useCountUp(target: number, duration = 1200) {
+function useCountUp(target: number, duration = 1800) {
   const [value, setValue] = useState(0);
   const lastTarget = useRef<number | null>(null);
+  const fromRef = useRef(0);
+  const rafRef = useRef<number | null>(null);
   useEffect(() => {
     if (lastTarget.current === target) return;
     lastTarget.current = target;
+    if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     const start = performance.now();
-    const from = value;
+    const from = fromRef.current;
     const tick = (now: number) => {
       const t = Math.min(1, (now - start) / duration);
       const eased = 1 - Math.pow(1 - t, 3);
-      setValue(from + (target - from) * eased);
-      if (t < 1) requestAnimationFrame(tick);
-      else setValue(target);
+      const next = from + (target - from) * eased;
+      fromRef.current = next;
+      setValue(next);
+      if (t < 1) {
+        rafRef.current = requestAnimationFrame(tick);
+      } else {
+        fromRef.current = target;
+        setValue(target);
+        rafRef.current = null;
+      }
     };
-    requestAnimationFrame(tick);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    rafRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+    };
   }, [target, duration]);
   return value;
 }
@@ -352,17 +369,29 @@ function PosterHeader({
   return (
     <div className="mb-5 flex items-end justify-between gap-6 flex-wrap">
       <div className="flex items-end gap-5">
-        <div className="display-mono text-[64px] md:text-[88px] text-[#0f1a14] leading-[0.8] select-none">
+        <div
+          data-poster-index
+          className="display-mono text-[64px] md:text-[88px] text-[#0f1a14] leading-[0.8] select-none"
+        >
           {index}
         </div>
         <div>
-          <div className="eyebrow-acid mb-2">{kicker}</div>
-          <h2 className="display text-zinc-50 text-[34px] md:text-[52px]">
+          <div data-poster-kicker className="eyebrow-acid mb-2">
+            {kicker}
+          </div>
+          <h2
+            data-poster-title
+            className="display text-zinc-50 text-[34px] md:text-[52px]"
+          >
             {title}
           </h2>
         </div>
       </div>
-      {hint && <div className="eyebrow text-right">{hint}</div>}
+      {hint && (
+        <div data-poster-hint className="eyebrow text-right">
+          {hint}
+        </div>
+      )}
     </div>
   );
 }
@@ -483,6 +512,24 @@ export default function App() {
 
   const [selectedRow, setSelectedRow] = useState<ViewRow | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    if (typeof window === 'undefined') return 'dark';
+    try {
+      const stored = window.localStorage.getItem('carboknot:theme');
+      return stored === 'light' ? 'light' : 'dark';
+    } catch {
+      return 'dark';
+    }
+  });
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    document.documentElement.setAttribute('data-theme', theme);
+    try {
+      window.localStorage.setItem('carboknot:theme', theme);
+    } catch {
+      /* storage unavailable — ignore */
+    }
+  }, [theme]);
   const [sortKey, setSortKey] = useState<SortKey>('ts');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [filterMerchant, setFilterMerchant] = useState<string>('all');
@@ -758,10 +805,9 @@ export default function App() {
 
   const jumpTo = useCallback((id: string) => {
     const el = document.getElementById(id);
-    if (el) {
-      const top = el.getBoundingClientRect().top + window.scrollY - 24;
-      window.scrollTo({ top, behavior: 'smooth' });
-    }
+    if (!el) return;
+    const top = el.getBoundingClientRect().top + window.scrollY - 24;
+    window.scrollTo({ top, behavior: 'smooth' });
   }, []);
 
   // ------------------------------------------------------------------
@@ -793,7 +839,7 @@ export default function App() {
         <main className="max-w-[920px] mx-auto px-6 md:px-10 pt-10 md:pt-16 relative z-10">
           <div className="flex items-center gap-2 mb-8 text-[11px] font-mono uppercase tracking-widest text-zinc-500">
             <span className="w-1.5 h-1.5 bg-[#b6ff3c] pulse-acid" />
-            Carboknot · local-first · {methodologyVersion}
+            Carboknot · {methodologyVersion}
             <div className="flex-1 ring-divider" />
             <button
               onClick={() => setSettingsOpen(true)}
@@ -881,15 +927,14 @@ export default function App() {
             </div>
           </div>
 
-          <div className="mt-8 text-[10px] font-mono uppercase tracking-widest text-zinc-600 text-center">
-            local-first · zero telemetry · open source
-          </div>
         </main>
 
         <SettingsModal
           open={settingsOpen}
           onClose={() => setSettingsOpen(false)}
           methodologyVersion={methodologyVersion}
+          theme={theme}
+          onThemeChange={setTheme}
         />
       </div>
     );
@@ -925,11 +970,18 @@ export default function App() {
               LIVE · LOCAL DATA
             </span>
           )}
-          <span className="chip">BETA · v0.1</span>
-          <span className="hidden md:inline text-[#4a5550] uppercase tracking-widest">
-            Browser extension that prints a carbon receipt at checkout
-          </span>
+          <span className="chip">v0.1</span>
           <div className="flex-1" />
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            className="btn-block"
+            aria-label="Settings"
+            title="Settings"
+          >
+            <Settings size={12} />
+            Settings
+          </button>
           <a
             href="https://github.com/Binayak012/CarboKnot"
             target="_blank"
@@ -949,86 +1001,257 @@ export default function App() {
         </div>
 
         {/* ============================================================
-            HERO BAND — wordmark + monolith total + settings
+            HERO CAROUSEL — full-bleed swipeable summary band (~60vh).
+            One container, multiple slides: Total CO₂ · This Week ·
+            Offset · Recents. Swipe on touch, click arrows on desktop.
            ============================================================ */}
         <section className="fade-in-up">
-          <div className="grid grid-cols-12 gap-3 md:gap-4">
-            {/* Wordmark tile */}
-            <div className="col-span-12 md:col-span-4 tile px-6 py-5 corner-mark flex items-center justify-between">
-              <div>
-                <div className="display text-[44px] md:text-[56px] text-zinc-50 leading-none tracking-[-0.06em]">
-                  CARBO
-                  <span className="text-[#b6ff3c]">/</span>
-                  KNOT
-                </div>
-                <div className="eyebrow mt-3">data‑first carbon receipt</div>
-              </div>
-              <div className="hidden md:flex flex-col items-end gap-2">
-                <div className="w-2 h-2 rounded-full bg-[#b6ff3c] pulse-acid" />
-                <div className="stencil text-[9px] text-[#b6ff3c]">REC</div>
-              </div>
-            </div>
-
-            {/* Monolith hero — TOTAL CONFIRMED CO₂e */}
-            <div className="col-span-12 md:col-span-6 tile-hero p-6 md:p-8 corner-mark relative overflow-hidden">
+          <Carousel
+            slidesPerView={1}
+            slidesPerViewMobile={1}
+            gap={0}
+            ariaLabel="Dashboard summary"
+            className="carousel-hero"
+            overlayArrows
+            loop
+            eyebrow={
+              <span
+                data-hero-wordmark
+                className="display text-zinc-50 leading-none tracking-[-0.05em] normal-case text-[36px] md:text-[52px]"
+              >
+                Carbo
+                <span data-hero-wordmark-accent className="text-[#b6ff3c]">
+                  K
+                </span>
+                not
+              </span>
+            }
+          >
+            {/* ──────────────── SLIDE 1 · TOTAL CO₂ ──────────────── */}
+            <div className="hero-carousel-slide tile-hero p-7 md:p-10 corner-mark">
               <div className="absolute inset-0 hatch opacity-60 pointer-events-none" />
-              <div className="relative">
-                <div className="flex items-center justify-between">
-                  <div className="eyebrow-acid">A · Confirmed Footprint</div>
-                  <div className="chip chip-acid">
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#b6ff3c] tick" />
-                    Live · last 30d
+              <div className="relative flex items-start justify-between gap-4">
+                <div>
+                  <div className="eyebrow-acid">Total CO₂e · confirmed</div>
+                  <div className="display text-zinc-100 text-[26px] md:text-[36px] tracking-[-0.05em] mt-2 max-w-md">
+                    Everything you've bought, measured.
                   </div>
                 </div>
-                <div className="mt-4 flex items-end gap-3">
-                  <div className="display text-[#d8ffb0] acid-glow leading-[0.78] text-[110px] md:text-[180px]">
+                <div className="chip chip-acid shrink-0">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#b6ff3c] tick" />
+                  Live · last 30d
+                </div>
+              </div>
+              <div className="relative">
+                <div className="flex items-end gap-4">
+                  <div className="display text-[#d8ffb0] acid-glow hero-display">
                     {animatedTotal.toFixed(1)}
                   </div>
                   <div className="pb-3 md:pb-6">
-                    <div className="display-mono text-[#b6ff3c] text-[24px] md:text-[32px]">
+                    <div className="display-mono text-[#b6ff3c] text-[28px] md:text-[40px]">
                       kg
                     </div>
                     <div className="eyebrow mt-1">CO₂e</div>
                   </div>
                 </div>
-                <div className="mt-4 flex flex-wrap items-center gap-3 text-[11px] font-mono text-[#7d8a82]">
+                <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] md:text-[12px] font-mono text-[#7d8a82]">
                   <span>± {totalCi.toFixed(1)} kg confidence interval</span>
                   <span className="text-[#3a4540]">/</span>
                   <span>≈ {milesDriven.toLocaleString()} mi driven equivalent</span>
                   <span className="text-[#3a4540]">/</span>
-                  <span>{purchasedRows.length} confirmed · {viewedRows.length} browsing</span>
+                  <span>
+                    {purchasedRows.length} confirmed · {viewedRows.length} browsing
+                  </span>
                 </div>
               </div>
             </div>
 
-            {/* Settings + meta tile */}
-            <div className="col-span-12 md:col-span-2 flex flex-col gap-3 md:gap-4">
-              <button
-                onClick={() => setSettingsOpen(true)}
-                className="tile flex-1 px-4 py-4 group flex flex-col items-start justify-between text-left hover:border-[rgba(182,255,60,0.4)] transition-colors"
-                aria-label="Settings"
-              >
-                <Settings
-                  size={18}
-                  className="text-zinc-500 group-hover:text-[#b6ff3c] group-hover:rotate-45 transition-all duration-300"
-                />
+            {/* ──────────────── SLIDE 2 · THIS WEEK ──────────────── */}
+            <div className="hero-carousel-slide tile-hero p-7 md:p-10 corner-mark">
+              <div className="absolute inset-0 hatch opacity-50 pointer-events-none" />
+              <div className="relative flex items-start justify-between gap-4">
                 <div>
-                  <div className="stencil text-[10px] text-zinc-500 group-hover:text-[#d8ffb0]">
-                    System
-                  </div>
-                  <div className="text-zinc-200 font-mono text-[13px] mt-0.5">
-                    Settings
+                  <div className="eyebrow-acid">This week</div>
+                  <div className="display text-zinc-100 text-[26px] md:text-[36px] tracking-[-0.05em] mt-2 max-w-md">
+                    Last 7 days of footprint.
                   </div>
                 </div>
-              </button>
-              <div className="tile-flat px-4 py-3">
-                <div className="stencil text-[9px] text-zinc-500">Method</div>
-                <div className="display-mono text-[#b6ff3c] text-[18px] mt-1">
-                  {methodologyVersion}
+                <div
+                  className={`chip shrink-0 ${
+                    weekDelta > 0
+                      ? 'chip-warn'
+                      : weekDelta < 0
+                      ? 'chip-acid'
+                      : ''
+                  }`}
+                >
+                  {weekDelta > 0 ? (
+                    <TrendingUp size={11} />
+                  ) : weekDelta < 0 ? (
+                    <TrendingDown size={11} />
+                  ) : (
+                    <Minus size={11} />
+                  )}
+                  {Math.abs(weekDelta).toFixed(0)}% vs last
+                </div>
+              </div>
+              <div className="relative">
+                <div className="flex items-end gap-4">
+                  <div className="display text-zinc-50 hero-display">
+                    {thisWeekKg.toFixed(1)}
+                  </div>
+                  <div className="pb-3 md:pb-6">
+                    <div className="display-mono text-zinc-300 text-[28px] md:text-[40px]">
+                      kg
+                    </div>
+                    <div className="eyebrow mt-1">7‑day</div>
+                  </div>
+                </div>
+                {last7TrendValues.length > 1 && (
+                  <div className="mt-5 max-w-md">
+                    <Sparkline
+                      data={last7TrendValues}
+                      color={ACID}
+                      height={48}
+                    />
+                    <div className="mt-2 flex items-center justify-between text-[10px] font-mono uppercase tracking-widest text-zinc-600">
+                      <span>7d ago</span>
+                      <span>today</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* ──────────────── SLIDE 3 · OFFSET ──────────────── */}
+            <div className="hero-carousel-slide tile-hero p-7 md:p-10 corner-mark">
+              <div className="absolute inset-0 hatch opacity-50 pointer-events-none" />
+              <div className="relative flex items-start justify-between gap-4">
+                <div>
+                  <div className="eyebrow-acid">Offset · monthly cap</div>
+                  <div className="display text-zinc-100 text-[26px] md:text-[36px] tracking-[-0.05em] mt-2 max-w-md">
+                    {offsetExcessKg > 0
+                      ? 'You are over the cap this month.'
+                      : 'Within budget — keep going.'}
+                  </div>
+                </div>
+                <div className="chip shrink-0">
+                  {OFFSET_PROVIDERS.length} providers
+                </div>
+              </div>
+              <div className="relative">
+                <div className="flex items-end gap-4">
+                  <div className="display text-zinc-50 hero-display-md">
+                    {monthKg.toFixed(1)}
+                  </div>
+                  <div className="pb-3 md:pb-5">
+                    <div className="display-mono text-zinc-400 text-[24px] md:text-[32px]">
+                      / {MONTHLY_BUDGET} kg
+                    </div>
+                    <div className="eyebrow mt-1">this month</div>
+                  </div>
+                </div>
+                <div className="mt-5 max-w-xl">
+                  <div className="h-2 bg-[#0a110d] border border-[var(--rule)] overflow-hidden">
+                    <div
+                      className="h-full transition-all duration-500"
+                      style={{
+                        width: `${Math.min(100, budgetPct)}%`,
+                        background:
+                          budgetPct >= 100
+                            ? '#f97373'
+                            : budgetPct >= 75
+                            ? '#fbbf24'
+                            : '#b6ff3c'
+                      }}
+                    />
+                  </div>
+                  <div className="mt-2 text-[11px] font-mono uppercase tracking-widest text-zinc-500">
+                    {budgetPct.toFixed(0)}% of cap used
+                    {offsetExcessKg > 0
+                      ? ` · ${offsetExcessKg.toFixed(1)} kg over`
+                      : ` · ${(MONTHLY_BUDGET - monthKg).toFixed(1)} kg headroom`}
+                  </div>
+                </div>
+                <div className="mt-6 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => jumpTo('offset')}
+                    className="btn-block btn-block-active"
+                  >
+                    Choose provider <ArrowUpRight size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => jumpTo('budget')}
+                    className="btn-block"
+                  >
+                    See budget breakdown
+                  </button>
                 </div>
               </div>
             </div>
-          </div>
+
+            {/* ──────────────── SLIDE 4 · RECENTS ──────────────── */}
+            <div className="hero-carousel-slide tile-hero p-7 md:p-10 corner-mark">
+              <div className="absolute inset-0 hatch opacity-50 pointer-events-none" />
+              <div className="relative flex items-start justify-between gap-4">
+                <div>
+                  <div className="eyebrow-acid">Recents</div>
+                  <div className="display text-zinc-100 text-[26px] md:text-[36px] tracking-[-0.05em] mt-2 max-w-md">
+                    Latest activity on your machine.
+                  </div>
+                </div>
+                <div className="chip shrink-0">{rows.length} records</div>
+              </div>
+              <div className="relative flex-1 mt-6 flex flex-col min-h-0">
+                {rows.length === 0 ? (
+                  <div className="flex-1 flex items-center justify-center text-zinc-600 font-mono text-sm">
+                    No views yet — open Amazon or eBay to seed data.
+                  </div>
+                ) : (
+                  <>
+                    <div className="divide-y divide-[var(--rule)] border-y border-[var(--rule)]">
+                      {rows.slice(0, 5).map((r, i) => (
+                        <div
+                          key={`${r.ts}-${i}`}
+                          className="py-3 flex items-center justify-between gap-3"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="stencil text-[10px] text-zinc-600 w-6 shrink-0">
+                              {String(i + 1).padStart(2, '0')}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="text-zinc-100 truncate text-[14px]">
+                                {r.title || 'Untitled product'}
+                              </div>
+                              <div className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 mt-0.5 truncate">
+                                {sourceBadgeLabel(r.data_source)} ·{' '}
+                                {formatRelativeTime(r.ts)}
+                                {r.purchased ? ' · confirmed' : ' · browsing'}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <div className="display-mono text-[#b6ff3c] text-[18px]">
+                              {r.kg_total.toFixed(2)} kg
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => jumpTo('recent')}
+                      className="btn-block self-start mt-4"
+                    >
+                      View all <ArrowUpRight size={12} />
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </Carousel>
         </section>
 
         {/* ============================================================
@@ -1037,8 +1260,8 @@ export default function App() {
         <section id="trend" className="fade-in-up fade-in-up-delay-1 scroll-mt-8">
           <PosterHeader
             index="01"
-            kicker="Daily emission curve"
-            title="Carbon Trend"
+            kicker="30-day curve"
+            title="Trend"
             hint={
               <>
                 {trendData.length} days · {chartMode.toUpperCase()} mode
@@ -1182,41 +1405,49 @@ export default function App() {
               </ResponsiveContainer>
             </div>
 
-            {/* Stat micro-tiles stack — preserves the carboknot KPIs */}
-            <div className="col-span-12 lg:col-span-4 grid grid-cols-2 lg:grid-cols-1 gap-3 md:gap-4">
-              <MicroStat
-                label="Confirmed CO₂e"
-                value={`${totalKg.toFixed(1)} kg`}
-                sub={`${viewedKg.toFixed(1)} kg browsed, not counted`}
-                icon={<Activity size={14} />}
-                acid
-                trend={{ value: weekDelta }}
-                sparkData={last7TrendValues}
-              />
-              <MicroStat
-                label="Miles driven"
-                value={milesDriven.toLocaleString()}
-                sub="0.4 kg per mi (US avg)"
-                icon={<MapPin size={14} />}
-              />
-              <MicroStat
-                label="Confirmed buys"
-                value={String(purchasedRows.length)}
-                sub={
-                  viewedRows.length > 0
-                    ? `${viewedRows.length} awaiting confirmation`
-                    : uncertainCount > 0
-                    ? `${uncertainCount} uncertain`
-                    : 'all categorized'
-                }
-                icon={<Package size={14} />}
-              />
-              <MicroStat
-                label="Local‑first ratio"
-                value={`${localPct}%`}
-                sub={`${cacheStats.hit_count_session} cache hits this session`}
-                icon={<HardDrive size={14} />}
-              />
+            {/* Stat micro-tiles — swipeable carousel of KPIs */}
+            <div className="col-span-12 lg:col-span-4">
+              <Carousel
+                slidesPerView={1}
+                slidesPerViewMobile={1}
+                gap={12}
+                ariaLabel="KPI tiles"
+                eyebrow="KPI · swipe"
+              >
+                <MicroStat
+                  label="Confirmed CO₂e"
+                  value={`${totalKg.toFixed(1)} kg`}
+                  sub={`${viewedKg.toFixed(1)} kg browsed, not counted`}
+                  icon={<Activity size={14} />}
+                  acid
+                  trend={{ value: weekDelta }}
+                  sparkData={last7TrendValues}
+                />
+                <MicroStat
+                  label="Miles driven"
+                  value={milesDriven.toLocaleString()}
+                  sub="0.4 kg per mi (US avg)"
+                  icon={<MapPin size={14} />}
+                />
+                <MicroStat
+                  label="Confirmed buys"
+                  value={String(purchasedRows.length)}
+                  sub={
+                    viewedRows.length > 0
+                      ? `${viewedRows.length} awaiting confirmation`
+                      : uncertainCount > 0
+                      ? `${uncertainCount} uncertain`
+                      : 'all categorized'
+                  }
+                  icon={<Package size={14} />}
+                />
+                <MicroStat
+                  label="Local‑first ratio"
+                  value={`${localPct}%`}
+                  sub={`${cacheStats.hit_count_session} cache hits this session`}
+                  icon={<HardDrive size={14} />}
+                />
+              </Carousel>
             </div>
           </div>
         </section>
@@ -1227,7 +1458,7 @@ export default function App() {
         <section id="budget" className="fade-in-up fade-in-up-delay-2 scroll-mt-8">
           <PosterHeader
             index="02"
-            kicker="Monthly carbon target"
+            kicker={`${MONTHLY_BUDGET} kg/month cap`}
             title="Budget"
             hint={
               <>
@@ -1409,11 +1640,11 @@ export default function App() {
         <section id="offset" className="fade-in-up fade-in-up-delay-2 scroll-mt-8">
           <PosterHeader
             index="03"
-            kicker="Make it right"
-            title="Carbon Offset"
+            kicker="External providers"
+            title="Offset"
             hint={
               <>
-                {OFFSET_PROVIDERS.length} vetted providers
+                {OFFSET_PROVIDERS.length} providers
                 <span className="mx-2 text-zinc-700">·</span>
                 opens in new tab
               </>
@@ -1613,13 +1844,19 @@ export default function App() {
             {/* Provider grid */}
             <div className="col-span-12 mt-2">
               <div className="flex items-center justify-between mb-3">
-                <div className="eyebrow">Verified providers</div>
+                <div className="eyebrow">Providers</div>
                 <span className="text-[10px] font-mono uppercase tracking-widest text-zinc-600">
                   external · not affiliated
                 </span>
               </div>
 
-              <div className="grid grid-cols-12 gap-3 md:gap-4">
+              <Carousel
+                slidesPerView={3}
+                slidesPerViewMobile={1}
+                gap={14}
+                ariaLabel="Offset providers"
+                eyebrow={`${OFFSET_PROVIDERS.length} providers · swipe`}
+              >
                 {OFFSET_PROVIDERS.map((p) => {
                   const Icon = OFFSET_ICON[p.iconKey];
                   const minCost = (offsetTonnes * p.pricePerTonneUsd[0]).toFixed(2);
@@ -1628,7 +1865,7 @@ export default function App() {
                   return (
                     <div
                       key={p.id}
-                      className="col-span-12 sm:col-span-6 lg:col-span-3 tile p-5 corner-mark relative flex flex-col"
+                      className="tile p-5 corner-mark relative flex flex-col h-full"
                     >
                       <div className="flex items-start justify-between mb-3">
                         <div className="w-9 h-9 border border-[var(--rule)] bg-[#0a110d] flex items-center justify-center">
@@ -1696,7 +1933,7 @@ export default function App() {
                     </div>
                   );
                 })}
-              </div>
+              </Carousel>
 
               <div className="mt-4 text-[10px] font-mono uppercase tracking-widest text-zinc-600 leading-relaxed">
                 Carboknot does not transmit your kg figure to any provider.
@@ -1717,9 +1954,9 @@ export default function App() {
         >
           <PosterHeader
             index="04"
-            kicker="Carbon inventory"
-            title="Top Categories"
-            hint={`${categoryTotals.length} categories on file`}
+            kicker={`${categoryTotals.length} categories`}
+            title="Categories"
+            hint={`top ${Math.min(5, categoryTotals.length)} shown`}
           />
 
           <div className="grid grid-cols-12 gap-3 md:gap-4">
@@ -1849,9 +2086,9 @@ export default function App() {
         <section id="recent" className="fade-in-up fade-in-up-delay-4 scroll-mt-8">
           <PosterHeader
             index="05"
-            kicker="Activity log"
-            title="Recent Views"
-            hint={`${rows.length} records on file`}
+            kicker={`${rows.length} records`}
+            title="Recent"
+            hint={`${purchasedRows.length} confirmed · ${viewedRows.length} browsing`}
           />
 
           <div className="flex flex-wrap items-center gap-2 mb-4">
@@ -2000,14 +2237,10 @@ export default function App() {
               </div>
             )}
           </div>
-          <div className="mt-3 flex items-center justify-between px-1">
+          <div className="mt-3 flex items-center px-1">
             <div className="flex items-center gap-2 text-[10px] text-zinc-600 font-mono uppercase tracking-widest">
               <Eye size={11} />
               Click row to inspect trace
-            </div>
-            <div className="flex items-center gap-2 text-[10px] text-zinc-600 font-mono uppercase tracking-widest">
-              <Zap size={11} className="text-[#b6ff3c]/70" />
-              Every kg has a citation
             </div>
           </div>
         </section>
@@ -2018,9 +2251,9 @@ export default function App() {
         <section id="privacy" className="fade-in-up scroll-mt-8">
           <PosterHeader
             index="06"
-            kicker="Audit printout"
-            title="Privacy Receipt"
-            hint="data-sharing posture · this session"
+            kicker="Network · this session"
+            title="Privacy"
+            hint={`${cacheStats.miss_count_session} api calls`}
           />
 
           <div className="grid grid-cols-12 gap-3 md:gap-4">
@@ -2032,7 +2265,7 @@ export default function App() {
                     <ShieldCheck size={14} className="text-[#b6ff3c]" />
                   </div>
                   <span className="stencil text-[11px] text-[#d8ffb0]">
-                    VERIFIED · LOCAL‑FIRST
+                    NETWORK · {cacheStats.miss_count_session} CALLS
                   </span>
                   <div className="flex-1 ring-divider" />
                   <span className="chip chip-acid">
@@ -2041,45 +2274,53 @@ export default function App() {
                   </span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
-                  {[
-                    {
-                      label: 'Cache Hits',
-                      value: cacheStats.hit_count_session,
-                      sub: 'stayed local · 0 requests',
-                      icon: <HardDrive size={13} />
-                    },
-                    {
-                      label: 'API Calls',
-                      value: cacheStats.miss_count_session,
-                      sub: 'ISIC4 + price only',
-                      icon: <Cloud size={13} />
-                    },
-                    {
-                      label: 'Cache Size',
-                      value: cacheStats.total_entries,
-                      sub: 'products on disk',
-                      icon: <Database size={13} />
-                    }
-                  ].map((stat) => (
-                    <div
-                      key={stat.label}
-                      className="border border-[var(--rule)] bg-[#04080a]/60 px-4 py-4"
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="stencil text-[10px] text-zinc-500">
-                          {stat.label}
+                <div className="mb-6">
+                  <Carousel
+                    slidesPerView={3}
+                    slidesPerViewMobile={1}
+                    gap={12}
+                    ariaLabel="Privacy receipt counters"
+                    eyebrow="Network · swipe"
+                  >
+                    {[
+                      {
+                        label: 'Cache Hits',
+                        value: cacheStats.hit_count_session,
+                        sub: 'stayed local · 0 requests',
+                        icon: <HardDrive size={13} />
+                      },
+                      {
+                        label: 'API Calls',
+                        value: cacheStats.miss_count_session,
+                        sub: 'ISIC4 + price only',
+                        icon: <Cloud size={13} />
+                      },
+                      {
+                        label: 'Cache Size',
+                        value: cacheStats.total_entries,
+                        sub: 'products on disk',
+                        icon: <Database size={13} />
+                      }
+                    ].map((stat) => (
+                      <div
+                        key={stat.label}
+                        className="border border-[var(--rule)] bg-[#04080a]/60 px-4 py-4 h-full"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="stencil text-[10px] text-zinc-500">
+                            {stat.label}
+                          </div>
+                          <div className="text-[#b6ff3c]">{stat.icon}</div>
                         </div>
-                        <div className="text-[#b6ff3c]">{stat.icon}</div>
+                        <div className="display-mono text-[#d8ffb0] text-[36px] acid-glow">
+                          {stat.value}
+                        </div>
+                        <div className="text-[10px] text-zinc-500 mt-1 font-mono">
+                          {stat.sub}
+                        </div>
                       </div>
-                      <div className="display-mono text-[#d8ffb0] text-[36px] acid-glow">
-                        {stat.value}
-                      </div>
-                      <div className="text-[10px] text-zinc-500 mt-1 font-mono">
-                        {stat.sub}
-                      </div>
-                    </div>
-                  ))}
+                    ))}
+                  </Carousel>
                 </div>
 
                 <div className="border-t border-[rgba(182,255,60,0.22)] pt-4">
@@ -2135,8 +2376,8 @@ export default function App() {
                 </div>
               </div>
               <div className="mt-4 border-t border-dashed border-[var(--rule)] pt-3">
-                <div className="text-[10px] text-zinc-500 leading-relaxed">
-                  ▌ Signed by Carboknot client · Open source · Reproducible build
+                <div className="text-[10px] text-zinc-500 leading-relaxed font-mono">
+                  ▌ Open DevTools › Network to verify these counters.
                 </div>
               </div>
             </div>
@@ -2152,9 +2393,9 @@ export default function App() {
         <section id="activity" className="fade-in-up scroll-mt-8">
           <PosterHeader
             index="07"
-            kicker="On-device audit log"
-            title="Activity Ledger"
-            hint={`${auditRows.length} events · never transmitted`}
+            kicker={`${auditRows.length} events`}
+            title="Activity"
+            hint="local audit log"
           />
 
           <div className="tile-ink corner-mark p-5">
@@ -2163,12 +2404,12 @@ export default function App() {
                 <ScrollText size={13} />
               </div>
               <span className="text-[11px] text-zinc-400 font-mono uppercase tracking-widest">
-                Append-only · on-device · zero outbound
+                {auditRows.length} events · indexeddb
               </span>
               <div className="flex-1" />
               <span className="chip">
                 <Radio size={10} className="text-[#b6ff3c]" />
-                LIVE · 5s POLL
+                5s POLL
               </span>
             </div>
             {auditRows.length === 0 ? (
@@ -2209,14 +2450,14 @@ export default function App() {
         <section id="methodology" className="fade-in-up scroll-mt-8">
           <PosterHeader
             index="08"
-            kicker="Source note"
-            title="Methodology"
-            hint="EXIOBASE spend-based LCA"
+            kicker="EXIOBASE spend-based LCA"
+            title="Method"
+            hint={`active ${methodologyVersion}`}
           />
 
           <div className="grid grid-cols-12 gap-3 md:gap-4">
             <div className="col-span-12 md:col-span-5 tile p-6 corner-mark">
-              <div className="eyebrow mb-3">Active version</div>
+              <div className="eyebrow mb-3">Version</div>
               <div className="display text-[#b6ff3c] acid-glow text-[56px] md:text-[72px] leading-none">
                 {methodologyVersion}
               </div>
@@ -2225,45 +2466,52 @@ export default function App() {
               </div>
             </div>
 
-            <div className="col-span-12 md:col-span-7 grid grid-cols-2 gap-3 md:gap-4">
-              <div className="tile px-5 py-5 corner-mark">
-                <div className="eyebrow mb-2">Region scope</div>
-                <div className="display-mono text-zinc-50 text-[24px]">Global</div>
-                <div className="text-[10px] text-zinc-500 mt-2 font-mono uppercase tracking-widest">
-                  with US fallback factors
+            <div className="col-span-12 md:col-span-7">
+              <Carousel
+                slidesPerView={2}
+                slidesPerViewMobile={1}
+                gap={14}
+                ariaLabel="Methodology facets"
+                eyebrow="4 facets · swipe"
+              >
+                <div className="tile px-5 py-5 corner-mark h-full">
+                  <div className="eyebrow mb-2">Region scope</div>
+                  <div className="display-mono text-zinc-50 text-[24px]">Global</div>
+                  <div className="text-[10px] text-zinc-500 mt-2 font-mono uppercase tracking-widest">
+                    with US fallback factors
+                  </div>
                 </div>
-              </div>
-              <div className="tile px-5 py-5 corner-mark">
-                <div className="eyebrow mb-2">Confidence model</div>
-                <div className="display-mono text-zinc-50 text-[24px]">CI 95%</div>
-                <div className="text-[10px] text-zinc-500 mt-2 font-mono uppercase tracking-widest">
-                  derived from EF spread
+                <div className="tile px-5 py-5 corner-mark h-full">
+                  <div className="eyebrow mb-2">Confidence model</div>
+                  <div className="display-mono text-zinc-50 text-[24px]">CI 95%</div>
+                  <div className="text-[10px] text-zinc-500 mt-2 font-mono uppercase tracking-widest">
+                    derived from EF spread
+                  </div>
                 </div>
-              </div>
-              <div className="tile px-5 py-5 corner-mark">
-                <div className="eyebrow mb-2">Categorization</div>
-                <div className="display-mono text-zinc-50 text-[24px]">ISIC4</div>
-                <div className="text-[10px] text-zinc-500 mt-2 font-mono uppercase tracking-widest">
-                  rev. 4 industry codes
+                <div className="tile px-5 py-5 corner-mark h-full">
+                  <div className="eyebrow mb-2">Categorization</div>
+                  <div className="display-mono text-zinc-50 text-[24px]">ISIC4</div>
+                  <div className="text-[10px] text-zinc-500 mt-2 font-mono uppercase tracking-widest">
+                    rev. 4 industry codes
+                  </div>
                 </div>
-              </div>
-              <div className="tile px-5 py-5 corner-mark">
-                <div className="eyebrow mb-2">Update cadence</div>
-                <div className="display-mono text-zinc-50 text-[24px]">Quarterly</div>
-                <div className="text-[10px] text-zinc-500 mt-2 font-mono uppercase tracking-widest">
-                  factor refresh window
+                <div className="tile px-5 py-5 corner-mark h-full">
+                  <div className="eyebrow mb-2">Update cadence</div>
+                  <div className="display-mono text-zinc-50 text-[24px]">Quarterly</div>
+                  <div className="text-[10px] text-zinc-500 mt-2 font-mono uppercase tracking-widest">
+                    factor refresh window
+                  </div>
                 </div>
-              </div>
+              </Carousel>
             </div>
           </div>
 
           <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--rule)] pt-5 text-[10px] font-mono uppercase tracking-widest text-zinc-600">
             <span>
-              Carboknot · {methodologyVersion} · Climatiq EXIOBASE spend-based LCA
+              {methodologyVersion} · Climatiq EXIOBASE spend-based LCA
             </span>
-            <span className="flex items-center gap-2">
-              <span className="w-1.5 h-1.5 bg-[#b6ff3c] pulse-acid" />
-              local-first · no telemetry · open source
+            <span>
+              {rows.length} records · {cacheStats.total_entries} cached factors
             </span>
           </div>
         </section>
@@ -2505,6 +2753,8 @@ export default function App() {
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         methodologyVersion={methodologyVersion}
+        theme={theme}
+        onThemeChange={setTheme}
       />
     </div>
   );

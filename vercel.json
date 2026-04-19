@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "installCommand": "cd carboknot/extension && npm install --no-audit --no-fund --legacy-peer-deps --ignore-scripts",
+  "installCommand": "cd carboknot/extension && npm install --no-audit --no-fund --ignore-scripts",
   "buildCommand": "cd carboknot/extension && npm run build:web",
   "outputDirectory": "carboknot/extension/dist-web",
   "framework": null,

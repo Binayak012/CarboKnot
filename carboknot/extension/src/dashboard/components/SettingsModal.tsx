@@ -11,20 +11,28 @@ import {
   HardDrive,
   Cpu,
   Trash2,
-  AlertTriangle
+  AlertTriangle,
+  Moon,
+  Sun
 } from 'lucide-react';
 import { resetAll } from '@/storage/db.js';
+
+export type ThemeName = 'dark' | 'light';
 
 interface SettingsModalProps {
   open: boolean;
   onClose: () => void;
   methodologyVersion: string;
+  theme: ThemeName;
+  onThemeChange: (next: ThemeName) => void;
 }
 
 export function SettingsModal({
   open,
   onClose,
-  methodologyVersion
+  methodologyVersion,
+  theme,
+  onThemeChange
 }: SettingsModalProps) {
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -44,6 +52,58 @@ export function SettingsModal({
         </div>
 
         <div className="px-6 py-6 space-y-6">
+          {/* Appearance */}
+          <section>
+            <div className="flex items-center gap-2 mb-3">
+              {theme === 'dark' ? (
+                <Moon size={13} className="text-[#b6ff3c]" />
+              ) : (
+                <Sun size={13} className="text-[#b6ff3c]" />
+              )}
+              <h3 className="stencil text-[10px] text-zinc-300">Appearance</h3>
+              <span className="chip ml-auto">{theme.toUpperCase()}</span>
+            </div>
+            <div className="tile p-5 corner-mark">
+              <div className="flex items-start justify-between gap-4 flex-wrap">
+                <div className="min-w-0">
+                  <div className="display text-zinc-100 text-[18px] mb-1">
+                    Theme
+                  </div>
+                  <p className="text-xs text-zinc-400 leading-relaxed font-mono">
+                    Dark is the original Carboknot preset · light flips the page
+                    to lime paper with dark forest tiles. Hero carousel keeps
+                    its lime band in both modes.
+                  </p>
+                </div>
+                <div className="inline-flex shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => onThemeChange('dark')}
+                    className={`btn-block ${
+                      theme === 'dark' ? 'btn-block-active' : ''
+                    }`}
+                    aria-pressed={theme === 'dark'}
+                  >
+                    <Moon size={12} />
+                    Dark
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onThemeChange('light')}
+                    className={`btn-block ${
+                      theme === 'light' ? 'btn-block-active' : ''
+                    }`}
+                    style={{ marginLeft: -1 }}
+                    aria-pressed={theme === 'light'}
+                  >
+                    <Sun size={12} />
+                    Light
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+
           {/* Network allowlist */}
           <section>
             <div className="flex items-center gap-2 mb-3">
