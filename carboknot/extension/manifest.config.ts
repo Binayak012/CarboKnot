@@ -15,10 +15,12 @@ export default defineManifest({
   host_permissions: [
     'https://www.amazon.com/*',
     'https://www.ebay.com/*',
-    // Dedalus swarm status + K2 Think reasoning proxy. Keep in sync with
-    // PROXY_ORIGIN in src/background/service-worker.js. Add the Render URL
-    // here once the proxy is deployed.
+    // Proxy origin for Climatiq estimates, Dedalus swarm cache hydrate,
+    // and reasoning. Keep in sync with PROXY_ORIGIN in
+    // src/background/service-worker.js. localhost is retained for dev;
+    // the Dedalus Machine line gets filled in once you have its public URL.
     'http://localhost:8787/*'
+    // 'https://<your-dedalus-machine>.dedalus.cloud/*',
   ],
   background: {
     service_worker: 'src/background/service-worker.js',
@@ -26,14 +28,36 @@ export default defineManifest({
   },
   content_scripts: [
     {
-      matches: ['https://www.amazon.com/*'],
-      js: ['src/content/amazon.js'],
-      css: ['src/content/badge.css'],
-      run_at: 'document_idle'
-    },
-    {
-      matches: ['https://www.ebay.com/*'],
-      js: ['src/content/ebay.js'],
+      // Retail footprint the dispatcher runs on. Kept alphabetical per
+      // group so diffs are scannable. Every host here either has a
+      // dedicated adapter in src/content/adapters/ or falls back to the
+      // generic schema.org/OpenGraph extractor. We deliberately avoid
+      // <all_urls> to keep the Chrome Web Store reviewer happy and the
+      // user-visible permission blurb tight.
+      matches: [
+        'https://*.adidas.com/*',
+        'https://*.apple.com/*',
+        'https://*.backmarket.com/*',
+        'https://*.bhphotovideo.com/*',
+        'https://*.costco.com/*',
+        'https://*.homedepot.com/*',
+        'https://*.kohls.com/*',
+        'https://*.lowes.com/*',
+        'https://*.macys.com/*',
+        'https://*.myshopify.com/*',
+        'https://*.nike.com/*',
+        'https://*.nordstrom.com/*',
+        'https://*.rei.com/*',
+        'https://*.sephora.com/*',
+        'https://*.wayfair.com/*',
+        'https://www.amazon.com/*',
+        'https://www.bestbuy.com/*',
+        'https://www.ebay.com/*',
+        'https://www.etsy.com/*',
+        'https://www.target.com/*',
+        'https://www.walmart.com/*'
+      ],
+      js: ['src/content/dispatcher.js'],
       css: ['src/content/badge.css'],
       run_at: 'document_idle'
     }

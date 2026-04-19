@@ -8,6 +8,15 @@ importers:
 
   .: {}
 
+  dedalus-machine/scripts:
+    dependencies:
+      dedalus:
+        specifier: ^0.1.0
+        version: 0.1.0
+      dotenv:
+        specifier: ^16.4.5
+        version: 16.6.1
+
   extension:
     dependencies:
       '@base-ui/react':
@@ -764,6 +773,14 @@ packages:
   decimal.js-light@2.5.1:
     resolution: {integrity: sha512-qIMFpTMZmny+MMIitAB6D7iVPEorVw6YQRWkvarTkT4tBeSLLiHzcwj6q0MmYSFCiVpiqPJTJEYIrpcPzVEIvg==}
 
+  dedalus@0.1.0:
+    resolution: {integrity: sha512-8ILyiMI7+Wr8V32jmISDWb31btU2EcVLMoeSC85c3IgCkwXlRKxA/3dU6W+mN1Rl6tbgK0j01BivHaMbGsKR2Q==}
+    peerDependencies:
+      ws: ^8.18.0
+    peerDependenciesMeta:
+      ws:
+        optional: true
+
   dexie@4.4.2:
     resolution: {integrity: sha512-zMtV8q79EFE5U8FKZvt0Y/77PCU/Hr/RDxv1EDeo228L+m/HTbeN2AjoQm674rhQCX8n3ljK87lajt7UQuZfvw==}
 
@@ -785,6 +802,10 @@ packages:
 
   domutils@3.2.2:
     resolution: {integrity: sha512-6kZKyUajlDuqlHKVX1w7gyslj9MPIXzIFiz/rGu35uC1wMi+kMhQwGhl4lt9unC9Vb9INnY9Z3/ZA3+FhASLaw==}
+
+  dotenv@16.6.1:
+    resolution: {integrity: sha512-uBq4egWHTcTt33a72vpSG0z3HnPuIl6NqYcTrKEg2azoEyl2hpW0zqlxysq2pK9HlDIHyHyakeYaYnSAwd8bow==}
+    engines: {node: '>=12'}
 
   electron-to-chromium@1.5.340:
     resolution: {integrity: sha512-908qahOGocRMinT2nM3ajCEM99H4iPdv84eagPP3FfZy/1ZGeOy2CZYzjhms81ckOPCXPlW7LkY4XpxD8r1DrA==}
@@ -1857,6 +1878,8 @@ snapshots:
 
   decimal.js-light@2.5.1: {}
 
+  dedalus@0.1.0: {}
+
   dexie@4.4.2: {}
 
   didyoumean@1.2.2: {}
@@ -1880,6 +1903,8 @@ snapshots:
       dom-serializer: 2.0.0
       domelementtype: 2.3.0
       domhandler: 5.0.3
+
+  dotenv@16.6.1: {}
 
   electron-to-chromium@1.5.340: {}
 

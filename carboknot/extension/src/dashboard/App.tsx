@@ -50,6 +50,7 @@ import {
 } from '@/dashboard/components/ui/table';
 import { useHistory } from '@/dashboard/hooks/useHistory';
 import { useCacheStats } from '@/dashboard/hooks/useCacheStats';
+import { useSwarmStatus } from '@/dashboard/hooks/useSwarmStatus';
 import { TraceDrawer } from '@/dashboard/components/TraceDrawer';
 import { SettingsModal } from '@/dashboard/components/SettingsModal';
 import type { ViewRow, Trace } from '@/dashboard/lib/types';
@@ -71,12 +72,26 @@ const SOURCE_BADGE_CLASS: Record<string, string> = {
   local_fallback: 'bg-zinc-800/60 text-zinc-400 border-zinc-600/40'
 };
 
+// Chip colour is a best-effort lookup; anything not listed falls back
+// to the neutral zinc chip at the call site. Add entries here when a
+// merchant gets enough traffic to warrant its own accent, otherwise
+// trust the fallback — adding a new merchant never requires a code
+// change elsewhere.
 const MERCHANT_COLORS: Record<string, string> = {
   amazon: 'bg-amber-950/40 text-amber-300 border-amber-700/30',
   ebay: 'bg-blue-950/40 text-blue-300 border-blue-700/30',
   walmart: 'bg-sky-950/40 text-sky-300 border-sky-700/30',
   target: 'bg-red-950/40 text-red-300 border-red-700/30',
-  bestbuy: 'bg-yellow-950/40 text-yellow-300 border-yellow-700/30'
+  bestbuy: 'bg-yellow-950/40 text-yellow-300 border-yellow-700/30',
+  etsy: 'bg-orange-950/40 text-orange-300 border-orange-700/30',
+  shopify: 'bg-green-950/40 text-green-300 border-green-700/30',
+  apple: 'bg-zinc-900/60 text-zinc-200 border-zinc-700/40',
+  nike: 'bg-lime-950/40 text-lime-300 border-lime-700/30',
+  adidas: 'bg-slate-900/60 text-slate-200 border-slate-700/40',
+  homedepot: 'bg-orange-950/50 text-orange-300 border-orange-700/40',
+  costco: 'bg-rose-950/40 text-rose-300 border-rose-700/30',
+  backmarket: 'bg-emerald-950/40 text-emerald-300 border-emerald-700/30',
+  sephora: 'bg-fuchsia-950/40 text-fuchsia-300 border-fuchsia-700/30'
 };
 
 const SOURCE_COLOR: Record<string, string> = {
@@ -284,6 +299,8 @@ type SortDir = 'asc' | 'desc';
 export default function App() {
   const rows = useHistory();
   const cacheStats = useCacheStats();
+  const { status: swarmStatus, hydrate: hydrateSwarm, hydrating: swarmHydrating } =
+    useSwarmStatus();
 
   const [selectedRow, setSelectedRow] = useState<ViewRow | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -858,6 +875,107 @@ export default function App() {
         </section>
 
         <section className="fade-in-up fade-in-up-delay-3">
+          <SectionLabel hint="factor warmer on a Dedalus Machine">
+            Dedalus Swarm Cache
+          </SectionLabel>
+          <div className="surface rounded-2xl p-6 relative overflow-hidden">
+            <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full bg-emerald-500/[0.07] blur-3xl pointer-events-none" />
+
+            <div className="relative grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+              <div className="rounded-xl border border-emerald-700/30 bg-[#070d0a]/70 px-4 py-3">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-[10px] uppercase tracking-widest text-zinc-500">
+                    Factors pre-warmed
+                  </div>
+                  <Radio
+                    size={13}
+                    className={
+                      swarmStatus.source === 'dedalus_swarm'
+                        ? 'text-emerald-400'
+                        : 'text-zinc-600'
+                    }
+                  />
+                </div>
+                <div className="text-3xl font-bold font-mono tabular-nums text-emerald-300">
+                  {swarmStatus.factor_count}
+                </div>
+                <div className="text-[10px] text-zinc-600 mt-1">
+                  CEDA 2022 · US · spend-based
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-zinc-800/80 bg-[#070d0a]/60 px-4 py-3">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-[10px] uppercase tracking-widest text-zinc-500">
+                    Last refresh
+                  </div>
+                  <Cloud size={13} className="text-sky-400/80" />
+                </div>
+                <div className="text-3xl font-bold font-mono tabular-nums text-zinc-100">
+                  {swarmStatus.last_refresh
+                    ? formatRelativeTime(new Date(swarmStatus.last_refresh).getTime())
+                    : '—'}
+                </div>
+                <div className="text-[10px] text-zinc-600 mt-1">
+                  {swarmStatus.last_refresh_duration_ms
+                    ? `${(swarmStatus.last_refresh_duration_ms / 1000).toFixed(0)}s warm pass`
+                    : 'awaiting first pass'}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-zinc-800/80 bg-[#070d0a]/60 px-4 py-3">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-[10px] uppercase tracking-widest text-zinc-500">
+                    Cadence
+                  </div>
+                  <Sparkles size={13} className="text-amber-300/80" />
+                </div>
+                <div className="text-3xl font-bold font-mono tabular-nums text-zinc-100">
+                  {swarmStatus.refresh_interval_min
+                    ? `${(swarmStatus.refresh_interval_min / 60).toFixed(0)}h`
+                    : '—'}
+                </div>
+                <div className="text-[10px] text-zinc-600 mt-1">
+                  {swarmStatus.refreshed_categories.length} categories covered
+                </div>
+              </div>
+            </div>
+
+            <Separator className="bg-emerald-900/30 mb-4" />
+
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-xs text-zinc-400 leading-relaxed max-w-2xl">
+                {swarmStatus.source === 'dedalus_swarm' ? (
+                  <>
+                    A background worker on a Dedalus Machine re-estimates Climatiq
+                    emission factors for 7 classification codes across an 11-step
+                    price ladder every few hours and publishes a signed{' '}
+                    <span className="text-zinc-200">cache.json</span> bundle. The
+                    service worker hydrates IndexedDB from it on install, so the
+                    first product view after setup reads a warm entry instead of
+                    paying a Climatiq round trip.
+                  </>
+                ) : (
+                  <>
+                    Warmer not reporting yet. The extension is still fully
+                    functional — it falls back to live Climatiq calls via the
+                    proxy. Once the Dedalus Machine boots and runs its first warm
+                    pass, new installs will pre-hydrate 100+ factors in one shot.
+                  </>
+                )}
+              </p>
+              <button
+                onClick={hydrateSwarm}
+                disabled={swarmHydrating}
+                className="text-[10px] font-semibold uppercase tracking-wider px-3 py-1.5 rounded-md border border-emerald-700/40 text-emerald-300 hover:bg-emerald-500/10 hover:border-emerald-500/60 transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {swarmHydrating ? 'Hydrating…' : 'Re-hydrate now'}
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section className="fade-in-up fade-in-up-delay-3">
           <SectionLabel hint="data-sharing posture">Privacy Receipt</SectionLabel>
           <div className="surface-accent rounded-2xl p-6 relative overflow-hidden">
             <div className="absolute -top-12 -right-12 w-48 h-48 rounded-full bg-emerald-500/10 blur-3xl pointer-events-none" />
@@ -928,13 +1046,14 @@ export default function App() {
 
               <p className="text-xs text-zinc-400 leading-relaxed">
                 Every new product category/price combination triggers{' '}
-                <span className="text-zinc-200">one</span> outbound call to our Render
-                proxy, which forwards <span className="text-emerald-300">only</span> the
-                ISIC4 classification code and the price to Climatiq.{' '}
+                <span className="text-zinc-200">one</span> outbound call to our
+                Dedalus Machine proxy, which forwards{' '}
+                <span className="text-emerald-300">only</span> the ISIC4
+                classification code and the price bucket to Climatiq.{' '}
                 <span className="text-zinc-200">
                   No titles, no URLs, no identity, no browsing history.
                 </span>{' '}
-                Cached results are reused forever.
+                Warm-cache hits (the common case) never leave the machine.
               </p>
             </div>
           </div>
@@ -1083,7 +1202,10 @@ export default function App() {
 
       <footer className="max-w-6xl mx-auto px-6 py-8 mt-6 border-t border-zinc-900/80">
         <div className="flex flex-wrap items-center justify-between gap-3 text-[10px] text-zinc-600 font-mono">
-          <span>Carboknot · {methodologyVersion} · Climatiq EXIOBASE spend-based LCA</span>
+          <span>
+            Carboknot · {methodologyVersion} · Climatiq CEDA 2022 (US) spend-based LCA ·
+            Dedalus Machine warmer
+          </span>
           <span className="flex items-center gap-2">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 pulse-green" />
             local-first · no telemetry · open source

@@ -21,19 +21,16 @@ type DexieViewRow = {
 };
 
 const DEFAULT_CONFIDENCE_WIDTH = 0.2;
-const KNOWN_MERCHANTS: ViewRow['merchant'][] = [
-  'amazon',
-  'ebay',
-  'walmart',
-  'target',
-  'bestbuy'
-];
 
-function normalizeMerchant(m: string): ViewRow['merchant'] {
-  const lower = (m ?? '').toLowerCase();
-  return (KNOWN_MERCHANTS.includes(lower as ViewRow['merchant'])
-    ? lower
-    : 'amazon') as ViewRow['merchant'];
+// `merchant` is now a free-form slug produced by the content-script
+// dispatcher (amazon, ebay, walmart, target, bestbuy, etsy, shopify, or
+// any registrable-domain label like `nike`/`apple` for sites we haven't
+// explicitly catalogued). We only normalize casing and whitespace so
+// everything downstream groups/filters consistently; unknown slugs
+// flow through unchanged rather than being coerced to 'amazon'.
+function normalizeMerchant(m: string | undefined): string {
+  const s = (m ?? '').trim().toLowerCase();
+  return s || 'other';
 }
 
 function normalizeSource(

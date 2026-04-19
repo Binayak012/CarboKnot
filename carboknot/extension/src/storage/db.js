@@ -44,6 +44,18 @@ db.version(2).stores({
   settings:  'key'
 });
 
+// v3 adds the Climatiq response cache. Keys are '<category>::<price_bucket>'
+// so nearby prices in the same category share a cache line and we stay well
+// under Climatiq's free-tier quota. Rows shape:
+//   { key, co2e_kg, emission_factor_id, emission_factor_name, cached_at }
+// The `&key` marker asserts uniqueness (tightening v2's implicit primary key).
+db.version(3).stores({
+  views:          '++id, url, occurred_at, category, merchant',
+  audit_log:      '++id, event_type, timestamp',
+  settings:       '&key',
+  climatiq_cache: '&key, cached_at'
+});
+
 /**
  * Append a product view to the local history.
  * @param {Object} input
@@ -99,15 +111,19 @@ export async function getHistory({ limit, sinceIso } = {}) {
 
 /**
  * Append an event to the local audit log. Never transmitted anywhere.
+ * `details` is optional — when omitted, the row is just
+ * `{ event_type, timestamp }` which is what the privacy-receipt counters
+ * in the dashboard rely on.
  * @param {string} event_type
  * @param {Object} [details]
  */
 export async function logEvent(event_type, details) {
-  return db.audit_log.add({
+  const row = {
     event_type,
-    timestamp: new Date().toISOString(),
-    details: details ? { ...details } : undefined
-  });
+    timestamp: new Date().toISOString()
+  };
+  if (details) row.details = { ...details };
+  return db.audit_log.add(row);
 }
 
 /**
@@ -147,5 +163,68 @@ export async function resetAll() {
   await db.views.clear();
   await db.audit_log.clear();
   await db.settings.clear();
+  await db.climatiq_cache.clear();
   await logEvent('reset_all', {});
+}
+
+/**
+ * Read a single Climatiq cache entry by key, or `undefined` if missing.
+ * @param {string} key
+ * @returns {Promise<{key: string, co2e_kg: number, emission_factor_id: string, emission_factor_name?: string, cached_at: string} | undefined>}
+ */
+export async function getCacheEntry(key) {
+  return db.climatiq_cache.get(key);
+}
+
+/**
+ * Upsert a Climatiq cache entry. Caller owns the key + cached_at.
+ * @param {{key: string, co2e_kg: number, emission_factor_id: string, emission_factor_name?: string, cached_at: string}} entry
+ * @returns {Promise<string>} the key
+ */
+export async function putCacheEntry(entry) {
+  return db.climatiq_cache.put(entry);
+}
+
+/**
+ * Bulk-upsert many Climatiq cache entries in a single Dexie transaction.
+ * Used by the service worker's install-time warm-hydrate to load the
+ * Dedalus Machine's pre-computed factor bundle into IndexedDB in one
+ * round trip.
+ *
+ * @param {Array<{key: string, co2e_kg: number, emission_factor_id: string, emission_factor_name?: string, cached_at: string}>} entries
+ * @returns {Promise<number>} the number of entries written
+ */
+export async function bulkPutCacheEntries(entries) {
+  if (!Array.isArray(entries) || entries.length === 0) return 0;
+  await db.climatiq_cache.bulkPut(entries);
+  return entries.length;
+}
+
+/**
+ * Cache health numbers surfaced in the dashboard's "Privacy receipt".
+ *
+ * `hit_count_session` / `miss_count_session` count today's audit events
+ * by string-prefix match on the ISO timestamp (`YYYY-MM-DD`). This keeps
+ * the query cheap — the `audit_log.event_type` index does the selective
+ * work, the date filter is a per-row substring check. No cross-day
+ * aggregation is attempted here; the dashboard can layer that on later.
+ *
+ * @returns {Promise<{ total_entries: number, hit_count_session: number, miss_count_session: number }>}
+ */
+export async function getClimatiqCacheStats() {
+  const todayPrefix = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+
+  const [total_entries, hit_count_session, miss_count_session] = await Promise.all([
+    db.climatiq_cache.count(),
+    db.audit_log
+      .where('event_type').equals('climatiq_cache_hit')
+      .and((r) => typeof r.timestamp === 'string' && r.timestamp.startsWith(todayPrefix))
+      .count(),
+    db.audit_log
+      .where('event_type').equals('climatiq_cache_miss')
+      .and((r) => typeof r.timestamp === 'string' && r.timestamp.startsWith(todayPrefix))
+      .count()
+  ]);
+
+  return { total_entries, hit_count_session, miss_count_session };
 }

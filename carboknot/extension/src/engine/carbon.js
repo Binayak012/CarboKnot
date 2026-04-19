@@ -7,6 +7,7 @@
 // cannot produce a number without also producing the steps that made it.
 
 import LCA_DATA from './lca.json' with { type: 'json' };
+import { getEstimate } from './climatiq.js';
 
 export const METHODOLOGY_VERSION = 'carboknot-v1';
 export { LCA_DATA };
@@ -108,4 +109,124 @@ export function computeCarbon(title, price, category) {
  */
 export function listCategories() {
   return Object.keys(LCA_DATA);
+}
+
+// Regex-based tier-1 categorizer. Patterns anchor on word-start only (no
+// trailing \b) so plural forms still match ("Headphones", "Sneakers").
+// Keys MUST exist in both lca.json and engine/category_map.json.
+const CATEGORY_PATTERNS = [
+  { re: /\b(headphone|earbud|earphone|airpods|soundbar|speaker)/i,                category: 'audio_electronics' },
+  { re: /\b(macbook|laptop|notebook\s*pc|chromebook|thinkpad|ultrabook)/i,        category: 'laptops'           },
+  { re: /\b(iphone|galaxy|pixel|smartphone|cell\s*phone)/i,                       category: 'smartphones'       },
+  { re: /\b(t-?shirt|tee\b|hoodie|sweater|sweatshirt|blouse|jacket|coat|cardigan)/i, category: 'apparel_tops'   },
+  { re: /\b(jean|pant|trouser|chino|slack|legging|short|skirt)/i,                 category: 'apparel_bottoms'   },
+  { re: /\b(shoe|sneaker|boot|loafer|trainer|sandal|heel)/i,                      category: 'footwear'          },
+  { re: /\b(detergent|soap|cleaner|laundry|dish\s*pod|dishwasher|paper\s*towel)/i, category: 'home_goods'       },
+  { re: /\b(shampoo|conditioner|lotion|moisturizer|lipstick|mascara|perfume|cologne)/i, category: 'beauty'      },
+  { re: /\b(book|novel|paperback|hardcover|textbook)/i,                           category: 'books'             },
+  { re: /\b(snack|cereal|pasta|coffee|tea\b|granola|sauce|oats)/i,                category: 'food_packaged'     },
+  { re: /\b(toy|lego|puzzle|doll|action\s*figure|board\s*game)/i,                 category: 'toys'              }
+];
+
+/**
+ * Deterministic tier-1 category detection from a product title.
+ * Returns a key present in lca.json, defaulting to `'general'` when no
+ * pattern matches. Cheap and synchronous — no model calls.
+ * @param {string} title
+ * @returns {string}
+ */
+export function detectCategory(title) {
+  const t = String(title || '');
+  for (const p of CATEGORY_PATTERNS) {
+    if (p.re.test(t)) return p.category;
+  }
+  return 'general';
+}
+
+/**
+ * Variant of {@link computeCarbon} that prefers a Climatiq-backed point
+ * estimate when one is available, and widens the local confidence interval
+ * when it is not. The shape of the returned object matches `computeCarbon`
+ * exactly (same keys, same types) so downstream consumers don't need to
+ * branch on the data source — they can read `trace.data_source` to learn
+ * which path produced the number.
+ *
+ * Contract:
+ *   - Never throws; falls back to the local engine on any remote failure.
+ *   - `stages` always sum to `kg_total` (within float tolerance).
+ *   - `confidence.low <= kg_total <= confidence.high`.
+ *
+ * @param {string} title
+ * @param {number} price
+ * @param {string} [category]
+ * @returns {Promise<import('./carbon.js').CarbonResult & { trace: { data_source: 'climatiq_fresh' | 'climatiq_cached' | 'local_fallback' } }>}
+ */
+export async function computeCarbonWithClimatiq(title, price, category) {
+  const local = computeCarbon(title, price, category);
+  const remote = await getEstimate(local.category, price);
+
+  if (remote && Number.isFinite(remote.co2e_kg) && remote.co2e_kg > 0 && local.kg_total > 0) {
+    const scalingFactor = remote.co2e_kg / local.kg_total;
+    const stages = {
+      manufacturing: local.stages.manufacturing * scalingFactor,
+      shipping:      local.stages.shipping      * scalingFactor,
+      packaging:     local.stages.packaging     * scalingFactor,
+      end_of_life:   local.stages.end_of_life   * scalingFactor
+    };
+    const kg_total = remote.co2e_kg;
+    const confidence = {
+      low:       remote.co2e_kg * 0.85,
+      high:      remote.co2e_kg * 1.15,
+      width_pct: 15,
+      reason:    local.confidence.reason
+    };
+    const trace = {
+      ...local.trace,
+      confidence: {
+        low: confidence.low,
+        high: confidence.high,
+        width_pct: confidence.width_pct,
+        reason: confidence.reason
+      },
+      data_source: remote.source === 'cache' ? 'climatiq_cached' : 'climatiq_fresh',
+      climatiq: {
+        emission_factor_id: remote.emission_factor_id,
+        emission_factor_name: remote.emission_factor_name,
+        cached_at: remote.cached_at,
+        scaling_factor: scalingFactor
+      }
+    };
+    return {
+      kg_total,
+      stages,
+      confidence,
+      equivalent_miles: Math.round(kg_total * 2.5),
+      trace,
+      category: local.category,
+      category_uncertain: local.category_uncertain
+    };
+  }
+
+  // Fallback: local engine + widened CI.
+  const confidence = {
+    low:       local.confidence.low  * 0.75,
+    high:      local.confidence.high * 1.25,
+    width_pct: Math.round(local.confidence.width_pct * 1.5),
+    reason:    local.confidence.reason
+  };
+  const trace = {
+    ...local.trace,
+    confidence: {
+      low: confidence.low,
+      high: confidence.high,
+      width_pct: confidence.width_pct,
+      reason: confidence.reason
+    },
+    data_source: 'local_fallback'
+  };
+  return {
+    ...local,
+    confidence,
+    trace
+  };
 }

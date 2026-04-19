@@ -9,7 +9,7 @@
 // into a new tab, not from the content script itself.
 
 import { getAlternatives } from '../engine/alternatives.js';
-import { logEvent } from '../storage/db.js';
+import { logEvent } from './bridge.js';
 
 const PANEL_ID = 'carboknot-panel';
 
@@ -26,6 +26,7 @@ export function openPanel(result) {
 
   const category = result?.trace?.inputs?.category ?? result?.category ?? 'general';
   const originalPrice = Number(result?.trace?.inputs?.price) || 0;
+  const originalTitle = String(result?.trace?.inputs?.title ?? '');
   const alternatives = getAlternatives(category, result.kg_total);
 
   panel.append(
@@ -33,7 +34,12 @@ export function openPanel(result) {
     renderHeader(result),
     renderStageBars(result.stages),
     renderAccordion(result.trace),
-    renderAlternatives(alternatives, { originalKg: result.kg_total, originalPrice })
+    renderAlternatives(alternatives, {
+      originalKg: result.kg_total,
+      originalPrice,
+      originalTitle,
+      category
+    })
   );
 
   // Close with Escape for keyboard users.
@@ -220,7 +226,7 @@ function fmtSignedKg(delta) {
   return '±0.0 kg';
 }
 
-function renderAlternatives(alternatives, { originalKg, originalPrice }) {
+function renderAlternatives(alternatives, { originalKg, originalPrice, originalTitle, category }) {
   const section = document.createElement('section');
   section.className = 'carboknot-alt-section';
 
@@ -233,14 +239,44 @@ function renderAlternatives(alternatives, { originalKg, originalPrice }) {
   list.className = 'carboknot-alt-list';
 
   for (const alt of alternatives || []) {
-    list.appendChild(renderAlternativeCard(alt, { originalKg, originalPrice }));
+    list.appendChild(renderAlternativeCard(alt, { originalKg, originalPrice, originalTitle, category }));
   }
 
   section.appendChild(list);
   return section;
 }
 
-function renderAlternativeCard(alt, { originalKg, originalPrice }) {
+/**
+ * Ask the service worker for Dedalus-authored reasoning about why an
+ * alternative is lower carbon. Wrapped in a Promise so the caller can
+ * await it. Never throws — resolves to `null` on any failure so we can
+ * fall back to the local rationale without try/catch at the call site.
+ *
+ * @param {{title: string, kg: number}} original
+ * @param {{title: string, kg: number}} alternative
+ * @returns {Promise<string | null>}
+ */
+function askDedalus(original, alternative) {
+  return new Promise((resolve) => {
+    try {
+      chrome.runtime.sendMessage(
+        { type: 'explain_alternative', original, alternative },
+        (response) => {
+          if (chrome.runtime.lastError) { resolve(null); return; }
+          if (response && response.ok && typeof response.reasoning === 'string' && response.reasoning.trim()) {
+            resolve(response.reasoning.trim());
+          } else {
+            resolve(null);
+          }
+        }
+      );
+    } catch (_) {
+      resolve(null);
+    }
+  });
+}
+
+function renderAlternativeCard(alt, { originalKg, originalPrice, originalTitle, category }) {
   const card = document.createElement('article');
   card.className = 'carboknot-alt-card';
 
@@ -295,7 +331,8 @@ function renderAlternativeCard(alt, { originalKg, originalPrice }) {
   whyBtn.type = 'button';
   whyBtn.className = 'carboknot-alt-why-btn';
   whyBtn.setAttribute('aria-expanded', 'false');
-  whyBtn.textContent = 'Why is this lower carbon?';
+  const whyBtnDefaultLabel = 'Why is this lower carbon?';
+  whyBtn.textContent = whyBtnDefaultLabel;
 
   actions.append(openBtn, whyBtn);
 
@@ -305,25 +342,56 @@ function renderAlternativeCard(alt, { originalKg, originalPrice }) {
 
   const rationaleText = document.createElement('p');
   rationaleText.className = 'carboknot-alt-rationale-text';
-  rationaleText.textContent = String(alt.rationale || '');
 
   const tag = document.createElement('span');
   tag.className = 'carboknot-alt-source-tag';
-  tag.textContent = 'Local reasoning';
 
   drawer.append(rationaleText, tag);
 
-  whyBtn.addEventListener('click', () => {
+  // Fetch the Dedalus reasoning exactly once per card. Subsequent clicks
+  // just toggle visibility, so we don't keep billing the reasoning proxy.
+  let loaded = false;
+
+  whyBtn.addEventListener('click', async () => {
     const nowOpen = drawer.hidden;
     drawer.hidden = !nowOpen;
     whyBtn.setAttribute('aria-expanded', String(nowOpen));
-    if (nowOpen) {
-      // Audit-log the click. Contract: event_type only + timestamp,
-      // no product title, no URL, no merchant, no price.
-      Promise.resolve()
-        .then(() => logEvent('alternative_rationale_viewed'))
-        .catch(() => {});
+    if (!nowOpen) return;
+
+    // Audit-log the click. Contract: event_type only + timestamp,
+    // no product title, no URL, no merchant, no price.
+    Promise.resolve()
+      .then(() => logEvent('alternative_rationale_viewed'))
+      .catch(() => {});
+
+    if (loaded) return;
+    loaded = true;
+
+    // Fire-and-forget; the audit write must never block the UI.
+    Promise.resolve().then(() => logEvent('explain_alternative_requested')).catch(() => {});
+
+    whyBtn.disabled = true;
+    whyBtn.textContent = 'Asking Dedalus…';
+    rationaleText.textContent = '';
+    tag.textContent = '';
+
+    const reasoning = await askDedalus(
+      { title: originalTitle, kg: originalKg, category },
+      { title: alt.name, kg: alt.carbon_kg, category }
+    );
+
+    if (reasoning) {
+      rationaleText.textContent = reasoning;
+      tag.textContent = 'via Dedalus GPT-5';
+      Promise.resolve().then(() => logEvent('explain_alternative_remote_success')).catch(() => {});
+    } else {
+      rationaleText.textContent = String(alt.rationale || '');
+      tag.textContent = 'Local reasoning';
+      Promise.resolve().then(() => logEvent('explain_alternative_fallback')).catch(() => {});
     }
+
+    whyBtn.disabled = false;
+    whyBtn.textContent = whyBtnDefaultLabel;
   });
 
   card.append(row, priceLine, carbonLine, actions, drawer);

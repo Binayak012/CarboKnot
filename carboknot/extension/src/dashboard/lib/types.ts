@@ -18,10 +18,14 @@ export interface Trace {
   climatiq_activity_id?: string;
 }
 
+// `merchant` is intentionally a bare string so the dashboard can render
+// rows from any of the 20+ sites the content script covers. Chip
+// coloring is a best-effort lookup with a neutral fallback — adding a
+// new merchant never requires a type change.
 export interface ViewRow {
   id: string;
   ts: number;
-  merchant: 'amazon' | 'ebay' | 'walmart' | 'target' | 'bestbuy';
+  merchant: string;
   title: string;
   category: string;
   category_uncertain: boolean;

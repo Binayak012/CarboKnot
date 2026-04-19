@@ -23,7 +23,15 @@ services:
         value: "10"
       - key: DEDALUS_API_KEY
         sync: false
-      - key: SWARM_WATCHER_ORIGIN
+      - key: CLIMATIQ_API_KEY
         sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
       - key: ALLOWED_ORIGINS
         sync: false
+      - key: WARMER_ENABLED
+        value: "false"
+      - key: PORT
+        value: "8787"
