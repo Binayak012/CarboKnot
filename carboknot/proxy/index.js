@@ -49,6 +49,7 @@ import { createServer } from 'node:http';
 import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 
 // --- env bootstrap (tiny .env loader so we don't need dotenv as a dep) ---
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -80,6 +81,17 @@ const STARTED_AT = Date.now();
 
 const altCache = new Map();
 const ALT_CACHE_TTL_MS = 10 * 60 * 1000;
+
+// --- /api/match (Climatiq-grounded, Gemini-ranked) cache ---
+// Separate from the warmer's spend-based cache.json so we never
+// blow away the 132 warm factors. 24h TTL on full match responses.
+const MATCH_CACHE_PATH = process.env.MATCH_CACHE_PATH || resolve(__dirname, 'data', 'match-cache.json');
+const MATCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const CLIMATIQ_SEARCH_ENDPOINT = process.env.CLIMATIQ_SEARCH_ENDPOINT || 'https://api.climatiq.io/data/v1/search';
+const AUTOPILOT_SUGGEST_ENDPOINT = process.env.AUTOPILOT_SUGGEST_ENDPOINT || 'https://preview.api.climatiq.io/autopilot/v1-preview4/suggest';
+const AUTOPILOT_ESTIMATE_ENDPOINT = process.env.AUTOPILOT_ESTIMATE_ENDPOINT || 'https://preview.api.climatiq.io/autopilot/v1-preview4/suggest/estimate';
+const matchCache = new Map();
+let matchCacheLoaded = false;
 
 // --- corpus (persistent confirmations log via node:sqlite) ---
 // node:sqlite is built-in since Node 22 (--experimental-sqlite flag) and stable in Node 23.4+.
@@ -216,6 +228,7 @@ const server = createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/confirm')       return handleConfirm(req, res);
     if (req.method === 'GET'  && url.pathname === '/api/stats')         return handleStats(res);
     if (req.method === 'POST' && url.pathname === '/api/alternatives')  return handleAlternatives(req, res);
+    if (req.method === 'POST' && url.pathname === '/api/match')         return handleMatch(req, res);
 
     return json(res, 404, { error: 'not_found', path: url.pathname });
   } catch (err) {
@@ -234,21 +247,59 @@ server.listen(PORT, () => {
 
 // --- route handlers ---
 
-function handleHealth(res) {
+// Upstream ping cache: avoid hammering Climatiq/Gemini on every /health hit.
+const upstreamPingCache = { ts: 0, climatiq: 'unknown', gemini: 'unknown' };
+const UPSTREAM_PING_TTL_MS = 60_000;
+
+async function probeUpstreams() {
+  if (Date.now() - upstreamPingCache.ts < UPSTREAM_PING_TTL_MS) return upstreamPingCache;
+  const ctrl = (ms) => { const c = new AbortController(); setTimeout(() => c.abort(), ms); return c; };
+  const probes = await Promise.allSettled([
+    CLIMATIQ_API_KEY
+      ? fetch('https://api.climatiq.io/data/v1/data-versions', {
+          headers: { authorization: `Bearer ${CLIMATIQ_API_KEY}` },
+          signal: ctrl(1000).signal
+        }).then((r) => (r.ok ? 'ok' : `http_${r.status}`))
+      : Promise.resolve('unconfigured'),
+    GEMINI_API_KEY
+      ? fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models?key=${GEMINI_API_KEY}&pageSize=1`,
+          { signal: ctrl(1000).signal }
+        ).then((r) => (r.ok ? 'ok' : `http_${r.status}`))
+      : Promise.resolve('unconfigured')
+  ]);
+  upstreamPingCache.ts = Date.now();
+  upstreamPingCache.climatiq = probes[0].status === 'fulfilled' ? probes[0].value : 'down';
+  upstreamPingCache.gemini   = probes[1].status === 'fulfilled' ? probes[1].value : 'down';
+  return upstreamPingCache;
+}
+
+async function handleHealth(res) {
+  const upstream = await probeUpstreams().catch(() => ({ climatiq: 'down', gemini: 'down' }));
+  const ageMin = warmerState.last_refresh
+    ? Math.floor((Date.now() - new Date(warmerState.last_refresh).getTime()) / 60_000)
+    : null;
   return json(res, 200, {
-    ok: true,
+    status: 'ok',
     uptime_s: Math.floor((Date.now() - STARTED_AT) / 1000),
     now: new Date().toISOString(),
     gemini_key: GEMINI_API_KEY ? 'set' : 'missing',
     dedalus_key: DEDALUS_API_KEY ? 'set' : 'missing',
     climatiq_key: CLIMATIQ_API_KEY ? 'set' : 'missing',
     corpus: corpusDb ? { ok: true } : { ok: false, reason: 'sqlite_unavailable' },
+    cache: {
+      keys: warmerState.factor_count,
+      last_warmed_iso: warmerState.last_refresh,
+      age_minutes: ageMin
+    },
+    upstream: { climatiq: upstream.climatiq, gemini: upstream.gemini },
     warmer: {
       enabled: WARMER_ENABLED,
       last_refresh: warmerState.last_refresh,
       factor_count: warmerState.factor_count,
       refresh_interval_min: WARMER_REFRESH_MIN
-    }
+    },
+    match_cache: { entries: matchCache.size }
   });
 }
 
@@ -589,6 +640,464 @@ async function handleAlternatives(req, res) {
     console.warn('[proxy] /api/alternatives:', err?.message || err);
     return json(res, 503, { error: 'alternatives_unavailable' });
   }
+}
+
+// --- /api/match: Climatiq-grounded, Gemini-ranked matcher ---
+//
+// Contract:
+//   POST /api/match
+//   Body: { brand, model, category, material, weight_kg, price_usd, url }
+//
+// Pipeline:
+//   1. Cache lookup (24h TTL, sha256 of brand|model|material|weight_kg)
+//   2. Estimate the original product:
+//        - Try Autopilot Suggest → Autopilot Estimate (if account is opted in)
+//        - On 403/error fall back to /data/v1/search (top hit) → /data/v1/estimate
+//   3. Build candidate pool from /data/v1/search with broader query
+//      (material + category), dedupe by activity_id, take top 15-20
+//   4. Rank with Gemini (verbatim spec prompt; temperature 0.2; responseSchema)
+//   5. /data/v1/estimate top 3 with weight params
+//   6. Persist response to MATCH_CACHE_PATH (separate file from warmer cache)
+//
+// Error handling:
+//   - Climatiq 429/5xx on step 2 → 503 { retry_after_s: 60 }
+//   - Gemini 429 / malformed → fallback: same-category candidates sorted by
+//     co2e_kg ascending, top 3, with meta.gemini_fallback_used=true
+//   - Per-alternative estimate failure → co2e_kg=null, do not kill response
+
+async function handleMatch(req, res) {
+  const t0 = Date.now();
+  const ip = (req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress || '').trim();
+  if (!rateLimitOk(ip)) return json(res, 429, { error: 'rate_limited' });
+
+  const payload = await readJson(req).catch(() => null);
+  if (!payload || !payload.brand || !payload.model) {
+    return json(res, 400, { error: 'bad_payload', need: ['brand', 'model', 'weight_kg'] });
+  }
+  const brand    = String(payload.brand).slice(0, 80);
+  const model    = String(payload.model).slice(0, 200);
+  const category = String(payload.category || '').slice(0, 80);
+  const material = String(payload.material || '').slice(0, 80);
+  const weight_kg = Number(payload.weight_kg);
+  const price_usd = Number(payload.price_usd) || 0;
+  if (!validNumber(weight_kg) || weight_kg <= 0) {
+    return json(res, 400, { error: 'bad_payload', need: ['weight_kg > 0'] });
+  }
+
+  await loadMatchCacheOnce();
+  const cacheKey = createHash('sha256')
+    .update(`${brand}|${model}|${material}|${weight_kg}`)
+    .digest('hex');
+  const cached = matchCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < MATCH_CACHE_TTL_MS) {
+    return json(res, 200, {
+      ...cached.data,
+      meta: { ...cached.data.meta, cache_hit: true, latency_ms: Date.now() - t0 }
+    });
+  }
+
+  if (!CLIMATIQ_API_KEY) return json(res, 503, { error: 'climatiq_unconfigured' });
+
+  const meta = {
+    cache_hit: false,
+    latency_ms: 0,
+    used_autopilot: false,
+    gemini_fallback_used: false
+  };
+
+  // Step 2: estimate the original.
+  let original;
+  try {
+    original = await estimateOriginal({ brand, model, material, category, weight_kg }, meta);
+  } catch (err) {
+    const status = err?.status === 429 || (err?.status >= 500 && err?.status < 600) ? 503 : 502;
+    console.warn('[match] original estimate failed:', err?.message || err);
+    return json(res, status, { error: 'climatiq_unavailable', retry_after_s: 60 });
+  }
+
+  // Step 3: candidate pool (broad search, dedupe by activity_id, cap 20).
+  let candidates = [];
+  try {
+    candidates = await buildCandidatePool({ material, category, brand, model });
+  } catch (err) {
+    console.warn('[match] candidate search failed:', err?.message || err);
+  }
+  // Always include the original's activity in the pool (Gemini may pick it
+  // back if nothing similar exists). De-dupe afterwards.
+  const seen = new Set();
+  const pool = [];
+  for (const c of [...candidates, ...(original.candidate ? [original.candidate] : [])]) {
+    if (!c?.activity_id || seen.has(c.activity_id)) continue;
+    seen.add(c.activity_id);
+    pool.push(c);
+    if (pool.length >= 20) break;
+  }
+
+  // Step 4: rank with Gemini (or fallback).
+  let ranked = await geminiRank({ original, candidates: pool }).catch((err) => {
+    console.warn('[match] gemini rank fallback:', err?.message || err);
+    return null;
+  });
+  if (!ranked || !Array.isArray(ranked) || ranked.length === 0) {
+    meta.gemini_fallback_used = true;
+    ranked = fallbackRank({ original, candidates: pool });
+  }
+
+  // Step 5: re-estimate top 3 with weight.
+  const alternatives = [];
+  for (const r of ranked.slice(0, 3)) {
+    const meta_c = pool.find((c) => c.activity_id === r.activity_id);
+    let co2e_kg = null;
+    let factor_meta = null;
+    try {
+      const est = await climatiqEstimateWeight(r.activity_id, weight_kg);
+      co2e_kg = est.co2e;
+      factor_meta = {
+        source: est.emission_factor?.source || meta_c?.source,
+        region: est.emission_factor?.region || meta_c?.region,
+        year:   est.emission_factor?.year   || meta_c?.year
+      };
+    } catch (err) {
+      console.warn(`[match] estimate alt ${r.activity_id} failed:`, err?.message || err);
+    }
+    const savings_kg = co2e_kg != null ? Math.max(0, original.co2e_kg - co2e_kg) : null;
+    const savings_pct = co2e_kg != null && original.co2e_kg > 0
+      ? Math.round((savings_kg / original.co2e_kg) * 100)
+      : null;
+    alternatives.push({
+      activity_id: r.activity_id,
+      name: meta_c?.name || r.activity_id,
+      material_or_category: meta_c?.category || category,
+      co2e_kg,
+      savings_kg,
+      savings_pct,
+      rationale: r.reason_2sentence || '',
+      similarity_score: typeof r.similarity_score === 'number' ? r.similarity_score : null,
+      emission_factor: factor_meta || {}
+    });
+  }
+
+  meta.latency_ms = Date.now() - t0;
+  const response = {
+    original: {
+      input: { brand, model, category, material, weight_kg, price_usd, url: payload.url || null },
+      co2e_kg: original.co2e_kg,
+      emission_factor: {
+        activity_id: original.candidate?.activity_id || null,
+        name:        original.candidate?.name || null,
+        source:      original.candidate?.source || null
+      }
+    },
+    alternatives,
+    meta
+  };
+
+  matchCache.set(cacheKey, { ts: Date.now(), data: response });
+  saveMatchCache().catch((err) => console.warn('[match] cache save failed:', err?.message));
+
+  return json(res, 200, response);
+}
+
+async function estimateOriginal({ brand, model, material, category, weight_kg }, meta) {
+  const inputText = [brand, model, material, `${weight_kg}kg`].filter(Boolean).join(' ');
+
+  // Try Autopilot Suggest first.
+  try {
+    const suggest = await fetchClimatiq(AUTOPILOT_SUGGEST_ENDPOINT, {
+      method: 'POST',
+      body: { suggest: { input: inputText, unit_type: ['Weight'] }, model: 'general', max_suggestions: 1 }
+    });
+    const top = suggest?.results?.[0];
+    if (top?.suggestion_id) {
+      const est = await fetchClimatiq(AUTOPILOT_ESTIMATE_ENDPOINT, {
+        method: 'POST',
+        body: { suggestion_id: top.suggestion_id, parameters: { weight: weight_kg, weight_unit: 'kg' } }
+      });
+      if (typeof est?.co2e === 'number') {
+        meta.used_autopilot = true;
+        return {
+          co2e_kg: est.co2e,
+          candidate: factorToCandidate(est.emission_factor || top.emission_factor)
+        };
+      }
+    }
+  } catch (err) {
+    // Autopilot is opt-in; 403 is expected on community accounts.
+    if (err?.status !== 403 && err?.status !== 404) {
+      console.warn('[match] autopilot suggest failed (non-403):', err?.status, err?.message);
+    }
+  }
+
+  // Fallback: Search → Estimate. Climatiq Search is BM25-style and brittle
+  // with multi-word queries — a query like "Patagonia Organic Cotton T-Shirt"
+  // returns 0 hits even though "shirt" returns 4. Cascade from specific
+  // multi-word queries down to single keyword tokens.
+  const queries = uniqueQueries([
+    [brand, model, material].filter(Boolean).join(' '),
+    [material, category].filter(Boolean).join(' '),
+    [model, material].filter(Boolean).join(' '),
+    ...singleTokens(material),
+    ...singleTokens(model),
+    ...singleTokens(category)
+  ]);
+
+  let top = null;
+  for (const q of queries) {
+    const search = await climatiqSearch({ query: q, results_per_page: 8 }).catch(() => null);
+    top = (search?.results || []).find(weightCompatible) || null;
+    if (top) break;
+  }
+  if (!top?.activity_id) {
+    const e = new Error('no_search_match'); e.status = 502; throw e;
+  }
+  const est = await climatiqEstimateWeight(top.activity_id, weight_kg);
+  return { co2e_kg: est.co2e, candidate: factorToCandidate({ ...top, ...est.emission_factor }) };
+}
+
+// Tokens worth searching: 3+ chars, alphabetic, deduped, lowercased.
+// Filters obvious noise (numerics, sizes, units).
+function singleTokens(s) {
+  if (!s) return [];
+  const stop = new Set([
+    'the', 'and', 'for', 'with', 'kg', 'lb', 'oz', 'inch', 'cm', 'mm',
+    'pro', 'plus', 'max', 'mini', 'new', 'old'
+  ]);
+  const seen = new Set();
+  const out = [];
+  for (const t of String(s).toLowerCase().split(/[^a-z]+/)) {
+    if (t.length < 3 || stop.has(t) || seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+  }
+  return out;
+}
+
+function uniqueQueries(qs) {
+  const seen = new Set();
+  return qs.map((q) => (q || '').trim()).filter((q) => {
+    if (!q || seen.has(q)) return false;
+    seen.add(q); return true;
+  });
+}
+
+function weightCompatible(r) {
+  const ut = r?.unit_type;
+  if (!ut) return false;
+  if (Array.isArray(ut)) return ut.some((u) => /weight/i.test(u));
+  return /weight/i.test(String(ut));
+}
+
+async function buildCandidatePool({ material, category, brand, model }) {
+  // Climatiq Search recall collapses on multi-word queries. Issue
+  // single-token queries for material + category + product nouns from
+  // the model string. Cap to ~4 distinct queries so we don't burn
+  // Climatiq's 50 rpm community quota.
+  const queries = uniqueQueries([
+    ...singleTokens(material),
+    ...singleTokens(category),
+    ...singleTokens(model)
+  ]).slice(0, 4);
+  if (queries.length === 0) queries.push('product');
+
+  const pool = [];
+  for (const q of queries) {
+    try {
+      const search = await climatiqSearch({ query: q, results_per_page: 12 });
+      for (const r of search?.results || []) {
+        if (r?.activity_id && weightCompatible(r)) pool.push(factorToCandidate(r));
+      }
+    } catch (err) {
+      console.warn(`[match] search "${q}" failed:`, err?.message || err);
+    }
+  }
+  return pool;
+}
+
+function factorToCandidate(f) {
+  if (!f) return null;
+  return {
+    activity_id: f.activity_id,
+    name: f.name || f.id || f.activity_id,
+    category: f.category || null,
+    sector: f.sector || null,
+    unit_type: Array.isArray(f.unit_type) ? f.unit_type[0] : f.unit_type || null,
+    region: f.region || null,
+    year: f.year || null,
+    source: f.source || null
+  };
+}
+
+async function climatiqSearch({ query, results_per_page }) {
+  const url = new URL(CLIMATIQ_SEARCH_ENDPOINT);
+  url.searchParams.set('query', query);
+  url.searchParams.set('data_version', CLIMATIQ_DATA_VERSION);
+  if (results_per_page) url.searchParams.set('results_per_page', String(results_per_page));
+  return fetchClimatiq(url.toString(), { method: 'GET' });
+}
+
+async function climatiqEstimateWeight(activity_id, weight_kg) {
+  return fetchClimatiq(CLIMATIQ_API_ENDPOINT, {
+    method: 'POST',
+    body: {
+      emission_factor: { activity_id, data_version: CLIMATIQ_DATA_VERSION },
+      parameters: { weight: weight_kg, weight_unit: 'kg' }
+    }
+  });
+}
+
+async function fetchClimatiq(url, { method, body }) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), CLIMATIQ_TIMEOUT_MS);
+  try {
+    const init = {
+      method,
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json',
+        authorization: `Bearer ${CLIMATIQ_API_KEY}`
+      },
+      signal: ctrl.signal
+    };
+    if (body) init.body = JSON.stringify(body);
+    const res = await fetch(url, init);
+    if (!res.ok) {
+      const e = new Error(`climatiq_http_${res.status}`);
+      e.status = res.status;
+      throw e;
+    }
+    return res.json();
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+async function geminiRank({ original, candidates }) {
+  if (!GEMINI_API_KEY) throw new Error('gemini_unconfigured');
+  if (!Array.isArray(candidates) || candidates.length === 0) throw new Error('no_candidates');
+
+  const systemPrompt =
+    'You are a sustainability expert. A user is about to buy a product. I will give you ' +
+    'the original product and up to 20 candidate alternative emission factors from Climatiq. ' +
+    'Rank the TOP 3 alternatives.\n\n' +
+    'Ranking priority (in order):\n' +
+    '1. Material similarity and functional equivalence — a glass bottle is NOT a replacement ' +
+    'for a laptop even if it has lower emissions. A recycled polyester shirt IS a replacement ' +
+    'for a cotton shirt.\n' +
+    '2. Same product category and use case.\n' +
+    '3. Lower kgCO2e as a TIEBREAKER only.\n\n' +
+    'Do not pick items with incompatible use cases. If fewer than 3 candidates are genuinely ' +
+    'comparable, return only what is genuinely comparable.';
+
+  const userPrompt =
+    `Original product:\n${JSON.stringify(original, null, 2)}\n\n` +
+    `Candidates (activity_id, name, category, unit_type, region):\n${JSON.stringify(candidates, null, 2)}\n\n` +
+    `Return JSON matching the responseSchema.`;
+
+  const responseSchema = {
+    type: 'OBJECT',
+    properties: {
+      top_alternatives: {
+        type: 'ARRAY',
+        items: {
+          type: 'OBJECT',
+          properties: {
+            activity_id:       { type: 'STRING' },
+            reason_2sentence:  { type: 'STRING' },
+            similarity_score:  { type: 'NUMBER' }
+          },
+          required: ['activity_id', 'reason_2sentence', 'similarity_score']
+        }
+      }
+    },
+    required: ['top_alternatives']
+  };
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+
+  const callOnce = async () => fetchWithTimeout(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      system_instruction: { parts: [{ text: systemPrompt }] },
+      contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+      generationConfig: {
+        temperature: 0.2,
+        maxOutputTokens: 800,
+        responseMimeType: 'application/json',
+        responseSchema,
+        thinkingConfig: { thinkingBudget: 0 }
+      }
+    })
+  }, ALT_TIMEOUT_MS);
+
+  const parseRanked = (data) => {
+    const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed?.top_alternatives)) return parsed.top_alternatives;
+    } catch {}
+    const m = raw.match(/\[[\s\S]*\]/);
+    if (m) { try { return JSON.parse(m[0]); } catch {} }
+    return null;
+  };
+
+  let parsed = parseRanked(await callOnce());
+  if (!parsed) parsed = parseRanked(await callOnce()); // one retry
+  if (!parsed) throw new Error('gemini_unparseable');
+
+  const validIds = new Set(candidates.map((c) => c.activity_id));
+  return parsed.filter((r) => r?.activity_id && validIds.has(r.activity_id));
+}
+
+function fallbackRank({ original, candidates }) {
+  // No Gemini — pick same-category (or same-sector) candidates and assume
+  // co2e per kg is similar to the original's source. We can't actually
+  // sort by co2e_kg without re-estimating each, which would burn calls.
+  // Instead, prefer same category + same unit_type (Weight), then take 3.
+  const origCat = original?.candidate?.category || null;
+  const sameCat = candidates.filter((c) => origCat && c.category === origCat);
+  const pool = sameCat.length >= 3 ? sameCat : candidates;
+  return pool.slice(0, 3).map((c) => ({
+    activity_id: c.activity_id,
+    reason_2sentence:
+      'Selected by category/use-case match (Gemini ranking unavailable). ' +
+      'Verify suitability before purchase.',
+    similarity_score: 0.5
+  }));
+}
+
+async function loadMatchCacheOnce() {
+  if (matchCacheLoaded) return;
+  matchCacheLoaded = true;
+  try {
+    const text = await readFile(MATCH_CACHE_PATH, 'utf8');
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed === 'object') {
+      const now = Date.now();
+      for (const [k, v] of Object.entries(parsed)) {
+        if (v?.ts && now - v.ts < MATCH_CACHE_TTL_MS) matchCache.set(k, v);
+      }
+      console.log(`[match] loaded ${matchCache.size} cached responses from ${MATCH_CACHE_PATH}`);
+    }
+  } catch {
+    // no prior cache
+  }
+}
+
+let matchSaveInFlight = null;
+async function saveMatchCache() {
+  if (matchSaveInFlight) return matchSaveInFlight;
+  matchSaveInFlight = (async () => {
+    const dir = dirname(MATCH_CACHE_PATH);
+    await mkdir(dir, { recursive: true });
+    const obj = {};
+    for (const [k, v] of matchCache) obj[k] = v;
+    const tmp = `${MATCH_CACHE_PATH}.tmp`;
+    await writeFile(tmp, JSON.stringify(obj), 'utf8');
+    await rename(tmp, MATCH_CACHE_PATH);
+  })().finally(() => { matchSaveInFlight = null; });
+  return matchSaveInFlight;
 }
 
 // --- Dedalus Machines factor warmer ---

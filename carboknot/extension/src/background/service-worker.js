@@ -52,7 +52,7 @@ const SWARM_HYDRATE_ALARM = 'swarm_cache_hydrate';
 const SWARM_STATUS_PERIOD_MIN = 24 * 60;
 const SWARM_HYDRATE_PERIOD_MIN = 24 * 60;
 const SWARM_FETCH_TIMEOUT_MS = 4000;
-const SWARM_HYDRATE_TIMEOUT_MS = 8000;
+const SWARM_HYDRATE_TIMEOUT_MS = 3000;
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create(SWARM_STATUS_ALARM, {
@@ -423,6 +423,18 @@ async function refreshSwarmStatus() {
  * @returns {Promise<{ ok: boolean, factor_count?: number, last_refresh?: string | null, reason?: string }>}
  */
 async function hydrateCacheBundle() {
+  // 1. Try the live proxy first.
+  const live = await hydrateFromProxy();
+  if (live.ok) return live;
+
+  // 2. Demo-day insurance: if the proxy is unreachable in 3s, hydrate from
+  //    the bundled fallback shipped with the extension. Best-effort, never
+  //    overwrites entries already populated by a successful prior run.
+  const fallback = await hydrateFromBundledFallback(live.reason);
+  return fallback.ok ? fallback : live;
+}
+
+async function hydrateFromProxy() {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), SWARM_HYDRATE_TIMEOUT_MS);
   try {
@@ -432,45 +444,60 @@ async function hydrateCacheBundle() {
       headers: { 'accept': 'application/json' }
     });
     if (!res.ok) {
-      // 503 cache_empty is expected on a freshly-booted warmer; not an error.
       const reason = res.status === 503 ? 'cache_empty' : `http_${res.status}`;
-      await logEvent('swarm_cache_hydrate', { ok: false, reason }).catch(() => {});
+      await logEvent('swarm_cache_hydrate', { ok: false, source: 'proxy', reason }).catch(() => {});
       return { ok: false, reason };
     }
     const body = await res.json();
-    const factors = body && typeof body === 'object' ? body.factors : null;
-    if (!factors || typeof factors !== 'object') {
-      await logEvent('swarm_cache_hydrate', { ok: false, reason: 'malformed' }).catch(() => {});
-      return { ok: false, reason: 'malformed' };
-    }
-
-    const entries = [];
-    for (const [key, f] of Object.entries(factors)) {
-      if (!f || typeof f.co2e_kg !== 'number' || !f.emission_factor_id) continue;
-      entries.push({
-        key,
-        co2e_kg: f.co2e_kg,
-        emission_factor_id: f.emission_factor_id,
-        emission_factor_name: f.emission_factor_name,
-        cached_at: f.refreshed_at || body.last_refresh || new Date().toISOString()
-      });
-    }
-    const written = await bulkPutCacheEntries(entries);
-    await logEvent('swarm_cache_hydrate', {
-      ok: true,
-      factor_count: written,
-      last_refresh: body.last_refresh || null
-    }).catch(() => {});
-    return {
-      ok: true,
-      factor_count: written,
-      last_refresh: body.last_refresh || null
-    };
+    const written = await writeBundleToCache(body, 'proxy');
+    if (written == null) return { ok: false, reason: 'malformed' };
+    return { ok: true, source: 'proxy', factor_count: written, last_refresh: body.last_refresh || null };
   } catch (err) {
     const reason = err?.name === 'AbortError' ? 'timeout' : 'error';
-    await logEvent('swarm_cache_hydrate', { ok: false, reason }).catch(() => {});
+    await logEvent('swarm_cache_hydrate', { ok: false, source: 'proxy', reason }).catch(() => {});
     return { ok: false, reason };
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function hydrateFromBundledFallback(proxyReason) {
+  try {
+    const url = chrome.runtime.getURL('fallback-cache.json');
+    const res = await fetch(url);
+    if (!res.ok) return { ok: false, reason: `bundled_http_${res.status}` };
+    const body = await res.json();
+    const written = await writeBundleToCache(body, 'bundled');
+    if (written == null) return { ok: false, reason: 'bundled_malformed' };
+    await logEvent('swarm_cache_hydrate', {
+      ok: true,
+      source: 'bundled_fallback',
+      proxy_reason: proxyReason,
+      factor_count: written,
+      last_refresh: body.last_refresh || null
+    }).catch(() => {});
+    return { ok: true, source: 'bundled_fallback', factor_count: written, last_refresh: body.last_refresh || null };
+  } catch (err) {
+    return { ok: false, reason: err?.message || 'bundled_error' };
+  }
+}
+
+async function writeBundleToCache(body, source) {
+  const factors = body && typeof body === 'object' ? body.factors : null;
+  if (!factors || typeof factors !== 'object') {
+    await logEvent('swarm_cache_hydrate', { ok: false, source, reason: 'malformed' }).catch(() => {});
+    return null;
+  }
+  const entries = [];
+  for (const [key, f] of Object.entries(factors)) {
+    if (!f || typeof f.co2e_kg !== 'number' || !f.emission_factor_id) continue;
+    entries.push({
+      key,
+      co2e_kg: f.co2e_kg,
+      emission_factor_id: f.emission_factor_id,
+      emission_factor_name: f.emission_factor_name,
+      cached_at: f.refreshed_at || body.last_refresh || new Date().toISOString()
+    });
+  }
+  return bulkPutCacheEntries(entries);
 }
