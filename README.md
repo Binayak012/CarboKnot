@@ -69,7 +69,6 @@ CarboKnot is a privacy-first carbon footprint tracker for your shopping. The car
 |---|---|
 | Language | TypeScript / JavaScript |
 | Package Manager | pnpm 10.33.0 (workspaces monorepo) |
-| Node Version |
 | Bundler | esbuild |
 | Browser Extension | `carboknot-extension` package |
 | Proxy / Middleware | `carboknot-proxy` package |
@@ -81,7 +80,7 @@ CarboKnot is a privacy-first carbon footprint tracker for your shopping. The car
 | Carbon Reasoning | K2 Think V2 (LLM360) |
 | Generic AI | Google Gemini API |
 | Dashboard UI | Orchid |
-| Hosting | Dedalus |
+| Hosting | Vercel |
 | MCP Integration | Knot Docs MCP (`docs.knotapi.com/mcp`) |
 
 ---
