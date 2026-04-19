@@ -4,6 +4,9 @@
   "version": "0.1.0",
   "description": "Zero-trust browser agent for on-device carbon accounting at the point of purchase.",
   "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "dev": "pnpm --filter carboknot-extension dev",
     "build": "pnpm --filter carboknot-extension build",
