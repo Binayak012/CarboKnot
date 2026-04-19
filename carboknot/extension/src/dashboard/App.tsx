@@ -65,6 +65,8 @@ import { useSubscriptions } from '@/dashboard/hooks/useSubscriptions';
 import { TraceDrawer } from '@/dashboard/components/TraceDrawer';
 import { SettingsModal } from '@/dashboard/components/SettingsModal';
 import { Carousel } from '@/dashboard/components/Carousel';
+import { loadDemoData } from '@/dashboard/lib/loadDemoData';
+import logoUrl from '@/assets/logo.png';
 import type { ViewRow, Trace, SubscriptionRow } from '@/dashboard/lib/types';
 import {
   formatRelativeTime,
@@ -545,6 +547,19 @@ export default function App() {
 
   const [dockVisible, setDockVisible] = useState(false);
   const [activeSection, setActiveSection] = useState<string>('trend');
+  const [demoLoading, setDemoLoading] = useState(false);
+
+  const handleLoadDemo = useCallback(async () => {
+    if (demoLoading) return;
+    setDemoLoading(true);
+    try {
+      await loadDemoData();
+      window.location.reload();
+    } catch (err) {
+      console.warn('[carboknot] failed to load demo data', err);
+      setDemoLoading(false);
+    }
+  }, [demoLoading]);
 
   const methodologyVersion = useMemo(() => getMethodologyVersion(rows), [rows]);
 
@@ -785,22 +800,51 @@ export default function App() {
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
+  // Highlight the section whose top has just crossed an imaginary trigger
+  // line ~30% down from the top of the viewport. Scroll-position scan is
+  // more reliable than IntersectionObserver here because dashboard sections
+  // vary wildly in height — many are taller than any sensible IO trigger
+  // band, leading to dead zones where no section qualifies as "visible".
   useEffect(() => {
-    const els = SECTIONS.map((s) => document.getElementById(s.id)).filter(
-      (el): el is HTMLElement => !!el
-    );
-    if (els.length === 0) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries
-          .filter((e) => e.isIntersecting)
-          .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
-        if (visible[0]) setActiveSection(visible[0].target.id);
-      },
-      { rootMargin: '-30% 0px -55% 0px', threshold: [0, 0.1, 0.3, 0.6] }
-    );
-    els.forEach((el) => observer.observe(el));
-    return () => observer.disconnect();
+    if (typeof window === 'undefined') return;
+
+    let ticking = false;
+    const compute = () => {
+      ticking = false;
+      const triggerY = window.scrollY + window.innerHeight * 0.3;
+      const docBottom = window.scrollY + window.innerHeight;
+      const pageBottom = document.documentElement.scrollHeight - 4;
+
+      // If we're at the very bottom of the page, lock to the last section so
+      // short final sections always get highlighted.
+      if (docBottom >= pageBottom) {
+        setActiveSection(SECTIONS[SECTIONS.length - 1].id);
+        return;
+      }
+
+      let current = SECTIONS[0].id;
+      for (const s of SECTIONS) {
+        const el = document.getElementById(s.id);
+        if (!el) continue;
+        const top = el.getBoundingClientRect().top + window.scrollY;
+        if (top <= triggerY) current = s.id;
+      }
+      setActiveSection(current);
+    };
+
+    const onScroll = () => {
+      if (ticking) return;
+      ticking = true;
+      window.requestAnimationFrame(compute);
+    };
+
+    compute();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll);
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
+    };
   }, []);
 
   const jumpTo = useCallback((id: string) => {
@@ -899,6 +943,22 @@ export default function App() {
                     />
                   </div>
                 </a>
+              </div>
+
+              <div className="mt-6 flex flex-col sm:flex-row sm:items-center gap-3 border-t border-[var(--rule)] pt-5">
+                <button
+                  onClick={handleLoadDemo}
+                  disabled={demoLoading}
+                  className="btn-block disabled:opacity-50 disabled:cursor-wait"
+                >
+                  <Sprout size={12} />
+                  {demoLoading ? 'Loading demo data…' : 'Load demo data'}
+                </button>
+                <p className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 leading-relaxed">
+                  Populates the local DB with the 24-row showcase fixture so
+                  you can see every section live. Clear it any time from
+                  Settings · Reset.
+                </p>
               </div>
             </div>
           </div>
@@ -1015,15 +1075,25 @@ export default function App() {
             overlayArrows
             loop
             eyebrow={
-              <span
-                data-hero-wordmark
-                className="display text-zinc-50 leading-none tracking-[-0.05em] normal-case text-[36px] md:text-[52px]"
-              >
-                Carbo
-                <span data-hero-wordmark-accent className="text-[#b6ff3c]">
-                  K
+              <span className="inline-flex items-center gap-3">
+                <img
+                  src={logoUrl}
+                  alt="Carboknot logo"
+                  width={56}
+                  height={56}
+                  className="h-12 w-12 md:h-14 md:w-14 object-contain shrink-0"
+                  draggable={false}
+                />
+                <span
+                  data-hero-wordmark
+                  className="display text-zinc-50 leading-none tracking-[-0.05em] normal-case text-[36px] md:text-[52px]"
+                >
+                  Carbo
+                  <span data-hero-wordmark-accent className="text-[#b6ff3c]">
+                    K
+                  </span>
+                  not
                 </span>
-                not
               </span>
             }
           >
@@ -1501,36 +1571,39 @@ export default function App() {
                     </div>
                   </div>
                 </div>
-                <div className="col-span-12 sm:col-span-5 flex justify-center">
-                  <div className="relative glow-ring">
-                    <RadialBarChart
-                      width={220}
-                      height={220}
-                      cx={110}
-                      cy={110}
-                      innerRadius={80}
-                      outerRadius={104}
-                      data={radialData}
-                      startAngle={90}
-                      endAngle={-270}
-                      barSize={20}
-                    >
-                      <PolarAngleAxis
-                        type="number"
-                        domain={[0, 100]}
-                        angleAxisId={0}
-                        tick={false}
-                      />
-                      <RadialBar
-                        background={{ fill: '#0d1612' }}
-                        dataKey="value"
-                        cornerRadius={0}
-                        fill={budgetColor}
-                        angleAxisId={0}
-                      />
-                    </RadialBarChart>
+                <div className="col-span-12 sm:col-span-5 flex justify-center mt-6 sm:mt-0">
+                  <div
+                    className="relative glow-ring w-full mx-auto"
+                    style={{ maxWidth: 220, aspectRatio: '1 / 1' }}
+                  >
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RadialBarChart
+                        cx="50%"
+                        cy="50%"
+                        innerRadius="72%"
+                        outerRadius="94%"
+                        data={radialData}
+                        startAngle={90}
+                        endAngle={-270}
+                        barSize={20}
+                      >
+                        <PolarAngleAxis
+                          type="number"
+                          domain={[0, 100]}
+                          angleAxisId={0}
+                          tick={false}
+                        />
+                        <RadialBar
+                          background={{ fill: '#0d1612' }}
+                          dataKey="value"
+                          cornerRadius={0}
+                          fill={budgetColor}
+                          angleAxisId={0}
+                        />
+                      </RadialBarChart>
+                    </ResponsiveContainer>
                     <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                      <span className="display-mono text-zinc-50 text-[40px]">
+                      <span className="display-mono text-zinc-50 text-[clamp(28px,7vw,40px)] leading-none">
                         {monthKg.toFixed(0)}
                       </span>
                       <span className="stencil text-[9px] text-zinc-500 mt-1">

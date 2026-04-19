@@ -49,6 +49,8 @@ import {
 } from '@/dashboard/lib/utils-dashboard';
 import { isExtensionContext } from '@/dashboard/lib/env';
 import { resetAll } from '@/storage/db.js';
+import { loadDemoData } from '@/dashboard/lib/loadDemoData';
+import logoUrl from '@/assets/logo.png';
 
 const ACID = '#b6ff3c';
 const MONTHLY_BUDGET = 200;
@@ -213,6 +215,19 @@ export default function PopupApp() {
   const [offsetCustomKg, setOffsetCustomKg] = useState<string>('25');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [resetConfirm, setResetConfirm] = useState<boolean>(false);
+  const [demoLoading, setDemoLoading] = useState<boolean>(false);
+
+  const handleLoadDemo = useCallback(async () => {
+    if (demoLoading) return;
+    setDemoLoading(true);
+    try {
+      await loadDemoData();
+      window.location.reload();
+    } catch (err) {
+      console.warn('[carboknot] failed to load demo data', err);
+      setDemoLoading(false);
+    }
+  }, [demoLoading]);
 
   const inExtension = isExtensionContext();
 
@@ -578,9 +593,17 @@ export default function PopupApp() {
     <div className="grid-bg text-zinc-100">
       {/* Header */}
       <header className="px-4 pt-4 pb-3 flex items-center gap-2">
-        <div className="flex-1">
+        <img
+          src={logoUrl}
+          alt="Carboknot logo"
+          width={32}
+          height={32}
+          className="h-8 w-8 object-contain shrink-0"
+          draggable={false}
+        />
+        <div className="flex-1 min-w-0">
           <div className="display text-[22px] leading-none tracking-[-0.05em] text-zinc-50">
-            CARBO<span className="text-[#b6ff3c]">/</span>KNOT
+            Carbo<span className="text-[#b6ff3c]">K</span>not
           </div>
           <div className="text-[8px] font-mono uppercase tracking-[0.28em] text-zinc-500 mt-1">
             data‑first carbon receipt
@@ -684,6 +707,17 @@ export default function PopupApp() {
               </div>
             </a>
           </div>
+          <button
+            onClick={handleLoadDemo}
+            disabled={demoLoading}
+            className="btn-block w-full justify-center disabled:opacity-50 disabled:cursor-wait"
+          >
+            <Sprout size={11} />
+            {demoLoading ? 'Loading demo data…' : 'Load demo data'}
+          </button>
+          <p className="text-[8px] font-mono uppercase tracking-widest text-zinc-600 text-center -mt-1">
+            Local only · audit-logged · clear from settings
+          </p>
           <button
             onClick={() => openDashboard()}
             className="btn-block w-full justify-center"
